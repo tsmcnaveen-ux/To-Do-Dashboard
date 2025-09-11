@@ -624,7 +624,7 @@ const App: React.FC = () => {
           <header className="mb-6 flex justify-between items-start">
             <div>
               <h1 className="text-2xl md:text-3xl font-bold text-slate-800">To-Do Dashboard</h1>
-              <p className="text-slate-500 mt-1">Hello there, here are your tasks for today.</p>
+              <p className="text-slate-500 mt-1 text-base">Hello there, here are your tasks for today.</p>
             </div>
             <div className="relative inline-block text-left">
                 <button
@@ -757,8 +757,8 @@ const App: React.FC = () => {
 
           <div className="mb-4">
             <div className="flex justify-between items-center mb-2">
-                <span className="text-sm font-semibold text-slate-600">Progress</span>
-                <span className="text-sm font-bold text-slate-600">{completedTasks} / {totalTasks} Completed</span>
+                <span className="text-base md:text-sm font-semibold text-slate-600">Progress</span>
+                <span className="text-base md:text-sm font-bold text-slate-600">{completedTasks} / {totalTasks} Completed</span>
             </div>
             <div className="w-full bg-slate-200 rounded-full h-2.5">
                 <div 
@@ -843,7 +843,7 @@ const App: React.FC = () => {
               <div className="md:hidden bg-slate-50 p-4 rounded-lg">
                 <div className="space-y-4">
                   <div>
-                    <label htmlFor="creator-text-mobile" className="text-sm font-medium text-slate-600 block mb-1">Task</label>
+                    <label htmlFor="creator-text-mobile" className="text-base font-medium text-slate-600 block mb-1">Task</label>
                     <input
                       id="creator-text-mobile"
                       ref={creatorTextRef}
@@ -852,12 +852,12 @@ const App: React.FC = () => {
                       onChange={(e) => setCreatorText(e.target.value)}
                       onKeyDown={(e) => handleCreatorKeyDown(e, 'text')}
                       placeholder="What needs to be done?"
-                      className="w-full text-slate-700 p-2 border border-slate-300 rounded-md bg-white focus:ring-1 focus:ring-sky-500 focus:border-sky-500 placeholder-slate-400"
+                      className="w-full text-base text-slate-700 p-2 border border-slate-300 rounded-md bg-white focus:ring-1 focus:ring-sky-500 focus:border-sky-500 placeholder-slate-400"
                     />
                   </div>
                   <div className="grid grid-cols-2 gap-4">
                     <div>
-                      <label htmlFor="creator-date-mobile" className="text-sm font-medium text-slate-600 block mb-1">Date</label>
+                      <label htmlFor="creator-date-mobile" className="text-base font-medium text-slate-600 block mb-1">Date</label>
                       <input
                         id="creator-date-mobile"
                         ref={creatorDateRef}
@@ -865,11 +865,11 @@ const App: React.FC = () => {
                         value={creatorDate}
                         onChange={(e) => setCreatorDate(e.target.value)}
                         onKeyDown={(e) => handleCreatorKeyDown(e, 'date')}
-                        className="w-full text-sm text-slate-500 p-2 border border-slate-300 rounded-md bg-white focus:ring-1 focus:ring-sky-500 focus:border-sky-500"
+                        className="w-full text-base text-slate-500 p-2 border border-slate-300 rounded-md bg-white focus:ring-1 focus:ring-sky-500 focus:border-sky-500"
                       />
                     </div>
                     <div>
-                      <label htmlFor="creator-time-mobile" className="text-sm font-medium text-slate-600 block mb-1">Time</label>
+                      <label htmlFor="creator-time-mobile" className="text-base font-medium text-slate-600 block mb-1">Time</label>
                       <input
                         id="creator-time-mobile"
                         ref={creatorTimeRef}
@@ -877,12 +877,12 @@ const App: React.FC = () => {
                         value={creatorTime}
                         onChange={(e) => setCreatorTime(e.target.value)}
                         onKeyDown={(e) => handleCreatorKeyDown(e, 'time')}
-                        className="w-full text-sm text-slate-500 p-2 border border-slate-300 rounded-md bg-white focus:ring-1 focus:ring-sky-500 focus:border-sky-500"
+                        className="w-full text-base text-slate-500 p-2 border border-slate-300 rounded-md bg-white focus:ring-1 focus:ring-sky-500 focus:border-sky-500"
                       />
                     </div>
                   </div>
                   <div>
-                    <label htmlFor="creator-whom-mobile" className="text-sm font-medium text-slate-600 block mb-1">Assignee</label>
+                    <label htmlFor="creator-whom-mobile" className="text-base font-medium text-slate-600 block mb-1">Assignee</label>
                     <input
                       id="creator-whom-mobile"
                       ref={creatorWhomRef}
@@ -891,12 +891,12 @@ const App: React.FC = () => {
                       onChange={(e) => setCreatorWhom(e.target.value)}
                       onKeyDown={(e) => handleCreatorKeyDown(e, 'whom')}
                       placeholder="Assign to..."
-                      className="w-full text-sm text-slate-500 p-2 border border-slate-300 rounded-md bg-white focus:ring-1 focus:ring-sky-500 focus:border-sky-500 placeholder-slate-400"
+                      className="w-full text-base text-slate-500 p-2 border border-slate-300 rounded-md bg-white focus:ring-1 focus:ring-sky-500 focus:border-sky-500 placeholder-slate-400"
                     />
                   </div>
                   <div className="flex items-center gap-2 pt-2">
-                    <button onClick={handleAddTask} className="flex-1 bg-sky-500 text-white font-semibold py-2 px-4 rounded-lg hover:bg-sky-600 transition-colors">Add Task</button>
-                    <button onClick={() => setIsMobileCreatorVisible(false)} className="flex-1 bg-slate-200 text-slate-700 font-semibold py-2 px-4 rounded-lg hover:bg-slate-300 transition-colors">Cancel</button>
+                    <button onClick={handleAddTask} className="flex-1 bg-sky-500 text-white font-semibold py-2 px-4 rounded-lg hover:bg-sky-600 transition-colors text-base">Add Task</button>
+                    <button onClick={() => setIsMobileCreatorVisible(false)} className="flex-1 bg-slate-200 text-slate-700 font-semibold py-2 px-4 rounded-lg hover:bg-slate-300 transition-colors text-base">Cancel</button>
                   </div>
                 </div>
               </div>
@@ -932,14 +932,14 @@ const App: React.FC = () => {
                                   value={editingText}
                                   onChange={(e) => setEditingText(e.target.value)}
                                   onKeyDown={(e) => handleKeyDown(e, index, 'text')}
-                                  className="w-full text-sm text-slate-700 p-0 m-0 border-none bg-transparent focus:ring-0 focus:outline-none"
+                                  className="w-full text-base md:text-sm text-slate-700 p-0 m-0 border-none bg-transparent focus:ring-0 focus:outline-none"
                               />
                           </div>
                         </div>
                     
                         <div className="w-full md:w-auto flex flex-col md:flex-row md:items-center mt-4 md:mt-0">
                            <div className={`flex items-center md:w-28 transition-transform duration-300 ${focusOnField === 'date' ? 'scale-115' : ''} md:scale-100`}>
-                              <label htmlFor={`date-${task.id}`} className="text-sm text-slate-500 w-20 md:hidden">Date</label>
+                              <label htmlFor={`date-${task.id}`} className="text-base md:hidden text-slate-500 w-20">Date</label>
                               <input
                                   id={`date-${task.id}`}
                                   ref={dateInputRef}
@@ -947,12 +947,12 @@ const App: React.FC = () => {
                                   value={editingDate}
                                   onChange={(e) => setEditingDate(e.target.value)}
                                   onKeyDown={(e) => handleKeyDown(e, index, 'date')}
-                                  className="w-full text-sm text-slate-500 p-2 rounded-md border border-slate-300 md:border-none md:p-0 md:bg-transparent focus:ring-1 focus:ring-sky-500 md:focus:ring-0 md:focus:outline-none md:text-center"
+                                  className="w-full text-base md:text-sm text-slate-500 p-2 rounded-md border border-slate-300 md:border-none md:p-0 md:bg-transparent focus:ring-1 focus:ring-sky-500 md:focus:ring-0 md:focus:outline-none md:text-center"
                               />
                           </div>
                     
                           <div className={`flex items-center mt-2 md:mt-0 md:w-24 transition-transform duration-300 ${focusOnField === 'time' ? 'scale-115' : ''} md:scale-100`}>
-                              <label htmlFor={`time-${task.id}`} className="text-sm text-slate-500 w-20 md:hidden">Time</label>
+                              <label htmlFor={`time-${task.id}`} className="text-base md:hidden text-slate-500 w-20">Time</label>
                               <input
                                   id={`time-${task.id}`}
                                   ref={timeInputRef}
@@ -960,12 +960,12 @@ const App: React.FC = () => {
                                   value={editingTime}
                                   onChange={(e) => setEditingTime(e.target.value)}
                                   onKeyDown={(e) => handleKeyDown(e, index, 'time')}
-                                  className="w-full text-sm text-slate-500 p-2 rounded-md border border-slate-300 md:border-none md:p-0 md:bg-transparent focus:ring-1 focus:ring-sky-500 md:focus:ring-0 md:focus:outline-none hide-picker-indicator md:text-center"
+                                  className="w-full text-base md:text-sm text-slate-500 p-2 rounded-md border border-slate-300 md:border-none md:p-0 md:bg-transparent focus:ring-1 focus:ring-sky-500 md:focus:ring-0 md:focus:outline-none hide-picker-indicator md:text-center"
                               />
                           </div>
                     
                            <div className={`flex items-center mt-2 md:mt-0 md:w-28 transition-transform duration-300 ${focusOnField === 'whom' ? 'scale-115' : ''} md:scale-100`}>
-                              <label htmlFor={`whom-${task.id}`} className="text-sm text-slate-500 w-20 md:hidden">Assignee</label>
+                              <label htmlFor={`whom-${task.id}`} className="text-base md:hidden text-slate-500 w-20">Assignee</label>
                               <input
                                   id={`whom-${task.id}`}
                                   ref={whomInputRef}
@@ -974,7 +974,7 @@ const App: React.FC = () => {
                                   onChange={(e) => setEditingWhom(e.target.value)}
                                   onKeyDown={(e) => handleKeyDown(e, index, 'whom')}
                                   placeholder="Assign to..."
-                                  className="w-full text-sm text-slate-500 p-2 rounded-md border border-slate-300 md:border-none md:p-0 md:bg-transparent focus:ring-1 focus:ring-sky-500 md:focus:ring-0 md:focus:outline-none md:text-center placeholder-slate-400"
+                                  className="w-full text-base md:text-sm text-slate-500 p-2 rounded-md border border-slate-300 md:border-none md:p-0 md:bg-transparent focus:ring-1 focus:ring-sky-500 md:focus:ring-0 md:focus:outline-none md:text-center placeholder-slate-400"
                               />
                           </div>
                           
@@ -999,10 +999,10 @@ const App: React.FC = () => {
                             className="h-5 w-5 rounded border-gray-300 text-sky-600 focus:ring-sky-500 cursor-pointer bg-white flex-shrink-0"
                           />
                           <div className="ml-4 flex-1 cursor-pointer min-w-0" onClick={() => handleStartEditing(task, 'text')}>
-                              <span className={`text-sm text-slate-700 break-words ${task.completed ? 'line-through text-slate-400' : ''}`}>
+                              <span className={`text-base md:text-sm text-slate-700 break-words ${task.completed ? 'line-through text-slate-400' : ''}`}>
                               {task.text}
                               </span>
-                               <div className="flex items-center gap-2 text-xs text-slate-400 md:hidden flex-wrap">
+                               <div className="flex items-center gap-2 text-sm text-slate-400 md:hidden flex-wrap">
                                   {task.date && <span className="cursor-pointer hover:text-sky-600" onClick={(e) => { e.stopPropagation(); handleStartEditing(task, 'date'); }}>{formatDateForDisplay(task.date)}</span>}
                                   {task.date && task.time && <span className="text-slate-300">&middot;</span>}
                                   {task.time && <span className="cursor-pointer hover:text-sky-600" onClick={(e) => { e.stopPropagation(); handleStartEditing(task, 'time'); }}>{formatTimeForDisplay(task.time)}</span>}
