@@ -1,5 +1,12 @@
 import React, { useState, useEffect, useRef, FC, useMemo, useCallback } from 'react';
 import { Task } from './types';
+import { createClient } from '@supabase/supabase-js';
+
+// --- Supabase Client Setup ---
+const supabaseUrl = 'https://pkjwbkmciosrvbhpzglx.supabase.co';
+const supabaseKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBrandia21jaW9zcnZiaHB6Z2x4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTUwMDIwNzEsImV4cCI6MjA3MDU3ODA3MX0.Xkuvbre2CMOxRQBsDTZApQ8_AGKC_nxhmXTzx3uU8kE';
+const supabase = createClient(supabaseUrl, supabaseKey);
+
 
 // SVG Icon Components defined outside the main component
 const PlusIcon: FC<{ className?: string }> = ({ className }) => (
@@ -112,7 +119,7 @@ const App: React.FC = () => {
   };
 
   const uniqueAssignees = useMemo(() => {
-    const assignees = tasks.map(t => t.whom.trim()).filter(Boolean);
+    const assignees = tasks.map(t => t.whom?.trim()).filter(Boolean) as string[];
     return [...new Set(assignees)];
   }, [tasks]);
 
@@ -130,7 +137,7 @@ const App: React.FC = () => {
     let tasksCopy = [...tasks];
 
     if (activeFilters.length > 0) {
-      tasksCopy = tasksCopy.filter(task => activeFilters.includes(task.whom));
+      tasksCopy = tasksCopy.filter(task => task.whom && activeFilters.includes(task.whom));
     }
     
     tasksCopy.sort((a, b) => {
@@ -180,34 +187,28 @@ const App: React.FC = () => {
   };
   
   useEffect(() => {
-    try {
-      const savedTasks = localStorage.getItem('tasks');
-      if (savedTasks) {
-        setTasks(JSON.parse(savedTasks));
-      } else {
-        const defaultTasks = [
-          { id: 1, text: 'Design the UI mockups for the new feature that the product team requested last week', completed: true, date: '2024-07-31', time: '10:00', whom: 'Alice' },
-          { id: 2, text: 'Develop the main dashboard component', completed: false, date: '2024-08-01', time: '14:30', whom: 'Bob' },
-          { id: 3, text: 'Integrate state management and write tests for all the new reducers.', completed: false, date: '2024-08-02', time: '11:00', whom: 'Charlie' },
-        ];
-        setTasks(defaultTasks);
+    const fetchTasks = async () => {
+      try {
+        const { data, error } = await supabase
+          .from('tasks')
+          .select('*')
+          .order('created_at', { ascending: false });
+
+        if (error) {
+          throw error;
+        }
+        if (data) {
+          setTasks(data);
+        }
+      } catch (error) {
+        console.error("Failed to fetch tasks from Supabase", error);
       }
-    } catch (error) {
-        console.error("Failed to load tasks from local storage", error);
-    }
-    setIsLoaded(true);
+      setIsLoaded(true);
+    };
+
+    fetchTasks();
   }, []);
 
-  useEffect(() => {
-    if(isLoaded) {
-        try {
-            localStorage.setItem('tasks', JSON.stringify(tasks));
-        } catch (error) {
-            console.error("Failed to save tasks to local storage", error);
-        }
-    }
-  }, [tasks, isLoaded]);
-  
   useEffect(() => {
     if (editingTaskId === null) return;
 
@@ -252,22 +253,40 @@ const App: React.FC = () => {
     setFocusOnField(null);
   }, []);
 
-  const saveTask = useCallback((): Task[] | null => {
+  const saveTask = useCallback(async (): Promise<Task[] | null> => {
     if (editingTaskId === null || editingText.trim() === '') {
       handleCancelEditing();
       return null;
     }
     
+    const taskUpdates = {
+      text: editingText.trim(),
+      date: editingDate || null,
+      time: editingTime || null,
+      whom: editingWhom.trim() || null,
+    };
+    
+    const { error } = await supabase
+      .from('tasks')
+      .update(taskUpdates)
+      .eq('id', editingTaskId);
+    
+    if (error) {
+      console.error("Failed to save task", error);
+      return null; // Don't update state on failure
+    }
+    
     const updatedTasks = tasks.map(task =>
-        task.id === editingTaskId ? { ...task, text: editingText.trim(), date: editingDate, time: editingTime, whom: editingWhom.trim() } : task
+        task.id === editingTaskId ? { ...task, ...taskUpdates } : task
     );
-    setTasks(updatedTasks);
     return updatedTasks;
+
   }, [tasks, editingTaskId, editingText, editingDate, editingTime, editingWhom, handleCancelEditing]);
   
-  const handleSaveEdit = useCallback(() => {
-    const updatedTasks = saveTask();
+  const handleSaveEdit = useCallback(async () => {
+    const updatedTasks = await saveTask();
     if (updatedTasks) {
+      setTasks(updatedTasks);
       handleCancelEditing();
     }
   }, [saveTask, handleCancelEditing]);
@@ -296,34 +315,66 @@ const App: React.FC = () => {
     }
   };
 
-  const handleClearCompletedTasks = () => {
+  const handleClearCompletedTasks = async () => {
+    const completedTaskIds = tasks.filter(t => t.completed).map(t => t.id);
+    if(completedTaskIds.length === 0) return;
+
+    const originalTasks = tasks;
     setTasks(prevTasks => prevTasks.filter(task => !task.completed));
     setIsMenuOpen(false);
     setMenuView('main');
+
+    try {
+      const { error } = await supabase
+        .from('tasks')
+        .delete()
+        .in('id', completedTaskIds);
+      
+      if (error) {
+        setTasks(originalTasks);
+        throw error;
+      }
+    } catch (error) {
+      console.error('Error clearing completed tasks:', error);
+    }
   };
 
-  const handleAddTask = () => {
+  const handleAddTask = async () => {
     if (creatorText.trim() === '') return;
 
-    const newTask: Task = {
-      id: Date.now(),
+    const newTaskData = {
       text: creatorText.trim(),
       completed: false,
-      date: creatorDate,
-      time: creatorTime,
-      whom: creatorWhom.trim(),
+      date: creatorDate || null,
+      time: creatorTime || null,
+      whom: creatorWhom.trim() || null,
     };
-    setTasks([newTask, ...tasks]);
-    
-    setCreatorText('');
-    setCreatorDate(getDefaultDate());
-    setCreatorTime('');
-    setCreatorWhom('');
-    
-    if (isMobileCreatorVisible) {
-      setIsMobileCreatorVisible(false);
-    } else {
-      creatorTextRef.current?.focus();
+
+    try {
+        const { data, error } = await supabase
+            .from('tasks')
+            .insert(newTaskData)
+            .select()
+            .single();
+
+        if (error) throw error;
+        
+        if (data) {
+            setTasks([data, ...tasks]);
+        }
+
+        setCreatorText('');
+        setCreatorDate(getDefaultDate());
+        setCreatorTime('');
+        setCreatorWhom('');
+        
+        if (isMobileCreatorVisible) {
+            setIsMobileCreatorVisible(false);
+        } else {
+            creatorTextRef.current?.focus();
+        }
+    } catch(error) {
+        console.error('Error adding task:', error);
     }
   };
   
@@ -384,15 +435,49 @@ const App: React.FC = () => {
     }
   };
 
-  const handleToggleComplete = (id: number) => {
-    const updatedTasks = tasks.map(task =>
-        task.id === id ? { ...task, completed: !task.completed } : task
-    );
-    setTasks(updatedTasks);
+  const handleToggleComplete = async (id: number) => {
+    const taskToUpdate = tasks.find(task => task.id === id);
+    if (!taskToUpdate) return;
+    
+    const newCompletedStatus = !taskToUpdate.completed;
+
+    const originalTasks = tasks;
+    setTasks(tasks.map(task =>
+        task.id === id ? { ...task, completed: newCompletedStatus } : task
+    ));
+    
+    try {
+      const { error } = await supabase
+        .from('tasks')
+        .update({ completed: newCompletedStatus })
+        .eq('id', id);
+
+      if (error) {
+        setTasks(originalTasks); 
+        throw error;
+      }
+    } catch (error) {
+       console.error('Error toggling complete status:', error);
+    }
   };
 
-  const handleDeleteTask = (id: number) => {
+  const handleDeleteTask = async (id: number) => {
+    const originalTasks = tasks;
     setTasks(tasks.filter(task => task.id !== id));
+
+    try {
+      const { error } = await supabase
+        .from('tasks')
+        .delete()
+        .eq('id', id);
+
+      if (error) {
+        setTasks(originalTasks);
+        throw error;
+      }
+    } catch (error) {
+      console.error('Error deleting task:', error);
+    }
   };
 
   const handleStartEditing = (task: Task, fieldToFocus: 'text' | 'date' | 'time' | 'whom' = 'text') => {
@@ -404,28 +489,50 @@ const App: React.FC = () => {
     setFocusOnField(fieldToFocus);
   };
 
-  const handleSaveAndMove = (currentTaskIndex: number, direction: 'up' | 'down' | 'left' | 'right' | 'enter') => {
-    saveTask();
-
-    if (filteredAndSortedTasks.length === 0) {
-      handleCancelEditing();
-      return;
+  const handleSaveAndMove = async (currentTaskIndex: number, direction: 'up' | 'down' | 'left' | 'right' | 'enter') => {
+    const updatedTasks = await saveTask();
+    if (!updatedTasks) {
+        handleCancelEditing();
+        return;
     }
+    setTasks(updatedTasks);
+    
+    // Recalculate sorted/filtered tasks based on the updated list to avoid using stale data
+    let tasksCopy = [...updatedTasks];
+    if (activeFilters.length > 0) {
+      tasksCopy = tasksCopy.filter(task => task.whom && activeFilters.includes(task.whom));
+    }
+    tasksCopy.sort((a, b) => {
+      if (a.completed && !b.completed) return 1; if (!b.completed && b.completed) return -1;
+      if (sortConfig.key) {
+        const key = sortConfig.key; const aValue = a[key]; const bValue = b[key];
+        if (!aValue) return 1; if (!bValue) return -1;
+        const comparison = String(aValue).localeCompare(String(bValue), undefined, { numeric: true, sensitivity: 'base' });
+        return sortConfig.direction === 'asc' ? comparison : -comparison;
+      } return 0;
+    });
     
     const colOrder: ('text' | 'date' | 'time' | 'whom')[] = ['text', 'date', 'time', 'whom'];
     const currentColIndex = colOrder.indexOf(focusOnField || 'text');
-    const totalRows = filteredAndSortedTasks.length;
+    const totalRows = tasksCopy.length;
     
-    let nextRowIndex = currentTaskIndex;
+    // Find the new index of the just-edited task in the potentially re-sorted list
+    const newCurrentTaskIndex = tasksCopy.findIndex(t => t.id === editingTaskId);
+    if (newCurrentTaskIndex === -1) { // Task might have been filtered out
+        handleCancelEditing();
+        return;
+    }
+    
+    let nextRowIndex = newCurrentTaskIndex;
     let nextColIndex = currentColIndex;
 
     switch (direction) {
         case 'enter':
         case 'down':
-            nextRowIndex = (currentTaskIndex + 1) % totalRows;
+            nextRowIndex = (newCurrentTaskIndex + 1) % totalRows;
             break;
         case 'up':
-            nextRowIndex = (currentTaskIndex - 1 + totalRows) % totalRows;
+            nextRowIndex = (newCurrentTaskIndex - 1 + totalRows) % totalRows;
             break;
         case 'right':
             nextColIndex = (currentColIndex + 1) % colOrder.length;
@@ -435,7 +542,7 @@ const App: React.FC = () => {
             break;
     }
 
-    const nextTaskToEdit = filteredAndSortedTasks[nextRowIndex];
+    const nextTaskToEdit = tasksCopy[nextRowIndex];
     const nextFieldToFocus = colOrder[nextColIndex];
     handleStartEditing(nextTaskToEdit, nextFieldToFocus);
   };
@@ -443,7 +550,9 @@ const App: React.FC = () => {
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>, taskIndex: number, field: 'text' | 'date' | 'time' | 'whom') => {
     if (e.key === 'ArrowUp' && taskIndex === 0) {
         e.preventDefault();
-        saveTask();
+        saveTask().then(updatedTasks => {
+            if (updatedTasks) setTasks(updatedTasks);
+        });
         handleCancelEditing();
 
         if (field === 'date' && creatorDateRef.current) creatorDateRef.current.focus();
@@ -933,7 +1042,7 @@ const App: React.FC = () => {
               )})
             ) : (
                 <div className="text-center py-8 border-t border-slate-200 mt-4">
-                    <p className="text-slate-500">{ activeFilters.length > 0 ? `No tasks found for the selected filters.` : "You have no tasks yet. Add one to get started!"}</p>
+                    <p className="text-slate-500">{ isLoaded ? (activeFilters.length > 0 ? `No tasks found for the selected filters.` : "You have no tasks yet. Add one to get started!") : "Loading tasks..."}</p>
                 </div>
             )}
           </div>
