@@ -86,6 +86,7 @@ const App: React.FC = () => {
   // Sorting and Filtering State
   const [sortOrder, setSortOrder] = useState<'asc' | null>(null);
   const [activeFilters, setActiveFilters] = useState<string[]>([]);
+  const [isSavingSettings, setIsSavingSettings] = useState(false);
   
   // Menu State
   const [isMenuOpen, setIsMenuOpen] = useState(false);
@@ -241,11 +242,13 @@ const App: React.FC = () => {
         });
       }
     } catch (error) {
-      console.error("Failed to fetch tasks from Supabase", error);
+      const supabaseError = error as { message: string };
+      console.error("Failed to fetch tasks from Supabase:", supabaseError.message || error);
     }
   }, []);
 
   const fetchSettings = useCallback(async () => {
+    if (isSavingSettings) return; // Prevent fetching while a save is in progress
     try {
         const { data, error } = await supabase
             .from('settings')
@@ -266,9 +269,10 @@ const App: React.FC = () => {
             );
         }
     } catch (error) {
-        console.error("Failed to fetch settings from Supabase", error);
+        const supabaseError = error as { message: string };
+        console.error("Failed to fetch settings from Supabase:", supabaseError.message || error);
     }
-  }, []);
+  }, [isSavingSettings]);
 
   // Initial data fetch and optimized polling
   useEffect(() => {
@@ -352,7 +356,7 @@ const App: React.FC = () => {
       .eq('id', editingTaskId);
     
     if (error) {
-      console.error("Failed to save task", error);
+      console.error("Failed to save task:", error.message);
       return null; // Don't update state on failure
     }
     
@@ -374,7 +378,7 @@ const App: React.FC = () => {
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
       if (editingTaskRef.current && !editingTaskRef.current.contains(event.target as Node)) {
-        handleSaveEdit();
+        void handleSaveEdit();
       }
     };
 
@@ -387,14 +391,21 @@ const App: React.FC = () => {
     };
   }, [editingTaskId, handleSaveEdit]);
   
-  const handleFilterChange = (newFilters: string[]) => {
+  // FIX: Refactored to use async/await with a try/finally block to address the TypeScript error.
+  const handleFilterChange = async (newFilters: string[]) => {
       setActiveFilters(newFilters);
-      supabase
-        .from('settings')
-        .upsert({ id: 1, active_filters: newFilters })
-        .then(({ error }) => {
-            if (error) console.error("Failed to sync filter settings:", error);
-        });
+      setIsSavingSettings(true);
+      try {
+        const { error } = await supabase
+          .from('settings')
+          .upsert({ id: 1, active_filters: newFilters });
+        
+        if (error) {
+          console.error("Failed to sync filter settings:", error.message);
+        }
+      } finally {
+        setIsSavingSettings(false);
+      }
   };
 
   const handleToggleAllFilters = () => {
@@ -430,7 +441,8 @@ const App: React.FC = () => {
         throw error;
       }
     } catch (error) {
-      console.error('Error clearing completed tasks:', error);
+      const supabaseError = error as { message: string };
+      console.error('Error clearing completed tasks:', supabaseError.message || error);
     }
   };
 
@@ -483,7 +495,8 @@ const App: React.FC = () => {
             creatorTextRef.current?.focus();
         }
     } catch(error) {
-        console.error('Error adding task:', error);
+        const supabaseError = error as { message: string };
+        console.error('Error adding task:', supabaseError.message || error);
     }
   };
   
@@ -567,7 +580,8 @@ const App: React.FC = () => {
         throw error;
       }
     } catch (error) {
-       console.error('Error toggling complete status:', error);
+       const supabaseError = error as { message:string };
+       console.error('Error toggling complete status:', supabaseError.message || error);
     }
   };
 
@@ -587,7 +601,8 @@ const App: React.FC = () => {
         throw error;
       }
     } catch (error) {
-      console.error('Error deleting task:', error);
+      const supabaseError = error as { message:string };
+      console.error('Error deleting task:', supabaseError.message || error);
     }
   };
 
@@ -654,10 +669,13 @@ const App: React.FC = () => {
     }
   };
 
-  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>, taskIndex: number, field: 'text' | 'date' | 'time' | 'whom') => {
+  const handleKeyDown = async (e: React.KeyboardEvent<HTMLInputElement>, taskIndex: number, field: 'text' | 'date' | 'time' | 'whom') => {
     if (e.key === 'ArrowUp' && taskIndex === 0) {
         e.preventDefault();
-        saveTask(); // Save but don't set state
+        const updatedTasks = await saveTask();
+        if (updatedTasks) {
+            setTasks(updatedTasks);
+        }
         handleCancelEditing();
 
         if (field === 'date' && creatorDateRef.current) creatorDateRef.current.focus();
@@ -670,25 +688,25 @@ const App: React.FC = () => {
     switch (e.key) {
         case 'Enter':
             e.preventDefault();
-            handleSaveAndMove(taskIndex, 'enter');
+            await handleSaveAndMove(taskIndex, 'enter');
             break;
         case 'ArrowDown':
             e.preventDefault();
-            handleSaveAndMove(taskIndex, 'down');
+            await handleSaveAndMove(taskIndex, 'down');
             break;
         case 'ArrowUp':
             e.preventDefault();
-            handleSaveAndMove(taskIndex, 'up');
+            await handleSaveAndMove(taskIndex, 'up');
             break;
         case 'ArrowRight':
             if (field === 'text' && (e.target as HTMLInputElement).selectionStart !== (e.target as HTMLInputElement).value.length) return; 
             e.preventDefault();
-            handleSaveAndMove(taskIndex, 'right');
+            await handleSaveAndMove(taskIndex, 'right');
             break;
         case 'ArrowLeft':
             if (field === 'text' && (e.target as HTMLInputElement).selectionStart !== 0) return;
             e.preventDefault();
-            handleSaveAndMove(taskIndex, 'left');
+            await handleSaveAndMove(taskIndex, 'left');
             break;
         case 'Escape':
             e.preventDefault();
@@ -699,18 +717,24 @@ const App: React.FC = () => {
     }
   };
   
-  const handleSortClick = () => {
+  // FIX: Refactored to use async/await with a try/finally block to address the TypeScript error.
+  const handleSortClick = async () => {
     const newSortOrder = sortOrder === 'asc' ? null : 'asc';
     setSortOrder(newSortOrder); // Optimistic local update
     setIsMenuOpen(false);
     
-    // Push change to Supabase
-    supabase
+    setIsSavingSettings(true);
+    try {
+      const { error } = await supabase
         .from('settings')
-        .upsert({ id: 1, sort_order: newSortOrder })
-        .then(({ error }) => {
-            if (error) console.error("Failed to sync sort setting:", error);
-        });
+        .upsert({ id: 1, sort_order: newSortOrder });
+
+      if (error) {
+        console.error("Failed to sync sort setting:", error.message);
+      }
+    } finally {
+        setIsSavingSettings(false);
+    }
   };
 
   const completedTasks = tasks.filter(t => t.completed).length;
