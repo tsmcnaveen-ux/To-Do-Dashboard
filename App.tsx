@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useRef, FC, useMemo, useCallback } from 'react';
 import { Task } from './types';
 import { createClient } from '@supabase/supabase-js';
@@ -212,7 +213,7 @@ const App: React.FC = () => {
     }
     saveTasksTimeoutRef.current = window.setTimeout(() => {
       processPendingChanges();
-    }, 1500);
+    }, 5000);
   }, [processPendingChanges]);
 
 
