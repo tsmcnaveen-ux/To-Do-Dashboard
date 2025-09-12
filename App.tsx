@@ -275,7 +275,7 @@ const App: React.FC = () => {
 
   // Polling to keep data in sync across devices
   useEffect(() => {
-    const POLLING_INTERVAL = 1000; // 1 second
+    const POLLING_INTERVAL = 100; // 0.1 seconds
     const intervalId = setInterval(() => {
       fetchTasks();
       fetchSettings();
