@@ -63,11 +63,12 @@ const SortAscendingIcon: FC<{ className?: string }> = ({ className }) => (
     </svg>
 );
 
-const SortDescendingIcon: FC<{ className?: string }> = ({ className }) => (
+const ArrowsUpDownIcon: FC<{ className?: string }> = ({ className }) => (
     <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className={className || "w-5 h-5"}>
-      <path strokeLinecap="round" strokeLinejoin="round" d="M3 4.5h14.25M3 9h9.75M3 13.5h5.25m5.25 6L17.25 21m0 0L21 17.25M17.25 21V9" />
+        <path strokeLinecap="round" strokeLinejoin="round" d="M3 7.5 7.5 3m0 0L12 7.5M7.5 3v13.5m13.5 0L16.5 21m0 0L12 16.5m4.5 4.5V7.5" />
     </svg>
 );
+
 
 const App: React.FC = () => {
   const [tasks, setTasks] = useState<Task[]>([]);
@@ -80,12 +81,12 @@ const App: React.FC = () => {
   const [isMobileCreatorVisible, setIsMobileCreatorVisible] = useState<boolean>(false);
   
   // Sorting and Filtering State
-  const [sortOrder, setSortOrder] = useState<'asc' | 'desc' | null>(() => {
+  const [sortOrder, setSortOrder] = useState<'asc' | null>(() => {
     const saved = localStorage.getItem('todo-sort-order');
     if (saved) {
       try {
         const parsed = JSON.parse(saved);
-        if (parsed === 'asc' || parsed === 'desc') {
+        if (parsed === 'asc') {
           return parsed;
         }
       } catch (e) {
@@ -163,10 +164,10 @@ const App: React.FC = () => {
     [activeFilters, uniqueAssignees]
   );
 
-  const sortTasks = useCallback((tasksToSort: Task[], sortOrder: 'asc' | 'desc' | null) => {
+  const sortTasks = useCallback((tasksToSort: Task[], sortOrder: 'asc' | null) => {
     const tasksCopy = [...tasksToSort];
     if (!sortOrder) {
-        // Only sort by completion status then by creation order (implicit)
+        // Only sort by completion status then by creation order (implicit from fetch)
         tasksCopy.sort((a, b) => {
             if (a.completed && !b.completed) return 1;
             if (!a.completed && b.completed) return -1;
@@ -176,19 +177,38 @@ const App: React.FC = () => {
     }
 
     tasksCopy.sort((a, b) => {
+        // Rule 1: Completed tasks always go to the bottom.
         if (a.completed && !b.completed) return 1;
         if (!a.completed && b.completed) return -1;
         
-        const dateA = a.date || '';
-        const dateB = b.date || '';
-        
-        const dateComparison = sortOrder === 'asc' ? dateA.localeCompare(dateB) : dateB.localeCompare(dateA);
-        if (dateComparison !== 0) return dateComparison;
+        const dateA = a.date || null;
+        const dateB = b.date || null;
 
-        const timeA = a.time || '';
-        const timeB = b.time || '';
+        // Rule 2: Tasks with dates come before tasks without dates.
+        if (dateA && !dateB) return -1;
+        if (!dateA && dateB) return 1;
+
+        // Rule 3: Sort by date if both exist.
+        if (dateA && dateB) {
+            const dateComparison = dateA.localeCompare(dateB);
+            if (dateComparison !== 0) return dateComparison;
+        }
+
+        // If dates are the same (or both are null), sort by time.
+        const timeA = a.time || null;
+        const timeB = b.time || null;
+
+        // Rule 4: Tasks with times come before tasks without times (on the same day).
+        if (timeA && !timeB) return -1;
+        if (!timeA && timeB) return 1;
+
+        // Rule 5: Sort by time if both exist.
+        if (timeA && timeB) {
+             return timeA.localeCompare(timeB);
+        }
         
-        return sortOrder === 'asc' ? timeA.localeCompare(timeB) : timeB.localeCompare(timeA);
+        // If dates and times are equivalent, maintain original order.
+        return 0;
     });
     return tasksCopy;
   }, []);
@@ -249,6 +269,48 @@ const App: React.FC = () => {
     fetchTasks();
   }, []);
   
+  useEffect(() => {
+    const channel = supabase.channel('realtime-tasks');
+
+    channel
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'tasks' },
+        (payload) => {
+          if (payload.eventType === 'INSERT') {
+            const newTask = payload.new as Task;
+            setTasks(currentTasks => {
+              if (currentTasks.some(task => task.id === newTask.id)) {
+                return currentTasks;
+              }
+              return [newTask, ...currentTasks];
+            });
+          }
+
+          if (payload.eventType === 'UPDATE') {
+            const updatedTask = payload.new as Task;
+            setTasks(currentTasks =>
+              currentTasks.map(task =>
+                task.id === updatedTask.id ? updatedTask : task
+              )
+            );
+          }
+
+          if (payload.eventType === 'DELETE') {
+            const deletedTask = payload.old as { id: number };
+            setTasks(currentTasks =>
+              currentTasks.filter(task => task.id !== deletedTask.id)
+            );
+          }
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, []);
+
   useEffect(() => {
     localStorage.setItem('todo-sort-order', JSON.stringify(sortOrder));
   }, [sortOrder]);
@@ -367,6 +429,7 @@ const App: React.FC = () => {
     const completedTaskIds = tasks.filter(t => t.completed).map(t => t.id);
     if(completedTaskIds.length === 0) return;
 
+    // Optimistic update
     const originalTasks = tasks;
     setTasks(prevTasks => prevTasks.filter(task => !task.completed));
     setIsMenuOpen(false);
@@ -379,7 +442,7 @@ const App: React.FC = () => {
         .in('id', completedTaskIds);
       
       if (error) {
-        setTasks(originalTasks);
+        setTasks(originalTasks); // Revert on error
         throw error;
       }
     } catch (error) {
@@ -399,18 +462,13 @@ const App: React.FC = () => {
     };
 
     try {
-        const { data, error } = await supabase
+        // No optimistic update needed here, as the real-time listener will add the task.
+        const { error } = await supabase
             .from('tasks')
-            .insert(newTaskData)
-            .select()
-            .single();
+            .insert(newTaskData);
 
         if (error) throw error;
         
-        if (data) {
-            setTasks([data, ...tasks]);
-        }
-
         setCreatorText('');
         setCreatorDate(getDefaultDate());
         setCreatorTime('');
@@ -439,7 +497,7 @@ const App: React.FC = () => {
             e.preventDefault();
             if (filteredAndSortedTasks.length > 0) {
                 const firstUncompleted = filteredAndSortedTasks.find(t => !t.completed) || filteredAndSortedTasks[0];
-                handleStartEditing(firstUncompleted, field);
+                if (firstUncompleted) handleStartEditing(firstUncompleted, field);
             }
             break;
         case 'ArrowUp':
@@ -489,6 +547,7 @@ const App: React.FC = () => {
     
     const newCompletedStatus = !taskToUpdate.completed;
 
+    // Optimistic update
     const originalTasks = tasks;
     setTasks(tasks.map(task =>
         task.id === id ? { ...task, completed: newCompletedStatus } : task
@@ -501,7 +560,7 @@ const App: React.FC = () => {
         .eq('id', id);
 
       if (error) {
-        setTasks(originalTasks); 
+        setTasks(originalTasks); // Revert on error
         throw error;
       }
     } catch (error) {
@@ -510,6 +569,7 @@ const App: React.FC = () => {
   };
 
   const handleDeleteTask = async (id: number) => {
+    // Optimistic update
     const originalTasks = tasks;
     setTasks(tasks.filter(task => task.id !== id));
 
@@ -520,7 +580,7 @@ const App: React.FC = () => {
         .eq('id', id);
 
       if (error) {
-        setTasks(originalTasks);
+        setTasks(originalTasks); // Revert on error
         throw error;
       }
     } catch (error) {
@@ -531,9 +591,9 @@ const App: React.FC = () => {
   const handleStartEditing = (task: Task, fieldToFocus: 'text' | 'date' | 'time' | 'whom' = 'text') => {
     setEditingTaskId(task.id);
     setEditingText(task.text);
-    setEditingDate(task.date);
-    setEditingTime(task.time);
-    setEditingWhom(task.whom);
+    setEditingDate(task.date || '');
+    setEditingTime(task.time || '');
+    setEditingWhom(task.whom || '');
     setFocusOnField(fieldToFocus);
   };
 
@@ -543,7 +603,7 @@ const App: React.FC = () => {
         handleCancelEditing();
         return;
     }
-    setTasks(updatedTasks);
+    // We don't call setTasks here because the real-time listener will handle it.
     
     // Recalculate sorted/filtered tasks based on the updated list to avoid using stale data
     let tasksCopy = [...updatedTasks];
@@ -583,16 +643,18 @@ const App: React.FC = () => {
     }
 
     const nextTaskToEdit = sortedTasksCopy[nextRowIndex];
-    const nextFieldToFocus = colOrder[nextColIndex];
-    handleStartEditing(nextTaskToEdit, nextFieldToFocus);
+    if (nextTaskToEdit) {
+      const nextFieldToFocus = colOrder[nextColIndex];
+      handleStartEditing(nextTaskToEdit, nextFieldToFocus);
+    } else {
+      handleCancelEditing();
+    }
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>, taskIndex: number, field: 'text' | 'date' | 'time' | 'whom') => {
     if (e.key === 'ArrowUp' && taskIndex === 0) {
         e.preventDefault();
-        saveTask().then(updatedTasks => {
-            if (updatedTasks) setTasks(updatedTasks);
-        });
+        saveTask(); // Save but don't set state
         handleCancelEditing();
 
         if (field === 'date' && creatorDateRef.current) creatorDateRef.current.focus();
@@ -633,6 +695,11 @@ const App: React.FC = () => {
             break;
     }
   };
+  
+  const handleSortClick = () => {
+    setSortOrder(prev => (prev === 'asc' ? null : 'asc'));
+    setIsMenuOpen(false);
+  };
 
   const completedTasks = tasks.filter(t => t.completed).length;
   const totalTasks = tasks.length;
@@ -640,7 +707,7 @@ const App: React.FC = () => {
   const isFilterOrSortActive = activeFilters.length > 0 || sortOrder !== null;
 
   return (
-    <div className="bg-slate-100 min-h-screen font-sans text-gray-800 flex justify-center md:items-center p-4" style={{ colorScheme: 'light' }}>
+    <div className="bg-slate-100 min-h-screen font-sans text-gray-800 flex justify-center p-4" style={{ colorScheme: 'light' }}>
       <main className="w-full max-w-5xl mx-auto">
         <div className="bg-white rounded-2xl shadow-2xl shadow-slate-300/60 p-4 md:p-6">
           <header className="mb-6 flex justify-between items-start">
@@ -678,11 +745,27 @@ const App: React.FC = () => {
                                 <button
                                     onClick={() => setMenuView('filter')}
                                     className="relative p-2 rounded-md text-slate-500 hover:bg-slate-100 hover:text-slate-700 transition-colors focus:outline-none focus:ring-2 focus:ring-sky-500"
-                                    aria-label="Filter & Sort tasks"
-                                    title="Filter & Sort"
+                                    aria-label="Filter tasks"
+                                    title="Filter"
                                 >
                                     <FunnelIcon className="w-5 h-5" />
-                                    {isFilterOrSortActive && (
+                                    {activeFilters.length > 0 && (
+                                        <span className="absolute top-1.5 right-1.5 block h-2 w-2 rounded-full bg-sky-500 ring-2 ring-white" />
+                                    )}
+                                </button>
+                                <div className="h-5 w-px bg-slate-200" aria-hidden="true"></div>
+                                <button
+                                    onClick={handleSortClick}
+                                    className="relative p-2 rounded-md text-slate-500 hover:bg-slate-100 hover:text-slate-700 transition-colors focus:outline-none focus:ring-2 focus:ring-sky-500"
+                                    aria-label="Sort tasks"
+                                    title={
+                                        sortOrder === 'asc' ? "Clear sorting" : "Sort by oldest date and time"
+                                    }
+                                >
+                                    {sortOrder === 'asc' ? <SortAscendingIcon className="w-5 h-5" /> :
+                                     <ArrowsUpDownIcon className="w-5 h-5" />
+                                    }
+                                    {sortOrder !== null && (
                                         <span className="absolute top-1.5 right-1.5 block h-2 w-2 rounded-full bg-sky-500 ring-2 ring-white" />
                                     )}
                                 </button>
@@ -705,36 +788,9 @@ const App: React.FC = () => {
                              <div className="py-1">
                                 <button onClick={() => setMenuView('main')} className="w-full text-left flex items-center px-4 py-2 text-sm text-slate-700 hover:bg-slate-100 transition-colors font-semibold">
                                     <ChevronLeftIcon className="w-4 h-4 mr-2" />
-                                    Back
+                                    Filter by Assignee
                                 </button>
-                                <div className="border-t border-slate-100 mb-1"></div>
-
-                                <div className="px-4 py-2">
-                                    <div className="text-xs text-slate-500 uppercase font-semibold tracking-wider mb-2">Sort by Date</div>
-                                    <div className="flex items-center space-x-2">
-                                        <button
-                                            onClick={() => setSortOrder(prev => prev === 'asc' ? null : 'asc')}
-                                            className={`flex-1 flex items-center justify-center p-2 rounded-md transition-colors focus:outline-none focus:ring-2 focus:ring-sky-500 ${sortOrder === 'asc' ? 'bg-sky-100 text-sky-600' : 'bg-slate-100 text-slate-500 hover:bg-slate-200'}`}
-                                            aria-pressed={sortOrder === 'asc'}
-                                            title="Sort oldest first"
-                                        >
-                                            <SortAscendingIcon className="w-5 h-5 mr-2" />
-                                            <span className="text-sm font-medium">Oldest</span>
-                                        </button>
-                                        <button
-                                            onClick={() => setSortOrder(prev => prev === 'desc' ? null : 'desc')}
-                                            className={`flex-1 flex items-center justify-center p-2 rounded-md transition-colors focus:outline-none focus:ring-2 focus:ring-sky-500 ${sortOrder === 'desc' ? 'bg-sky-100 text-sky-600' : 'bg-slate-100 text-slate-500 hover:bg-slate-200'}`}
-                                            aria-pressed={sortOrder === 'desc'}
-                                            title="Sort newest first"
-                                        >
-                                            <SortDescendingIcon className="w-5 h-5 mr-2" />
-                                            <span className="text-sm font-medium">Newest</span>
-                                        </button>
-                                    </div>
-                                </div>
-                                
-                                {uniqueAssignees.length > 0 && <div className="border-t border-slate-100 my-1"></div>}
-                                
+                                <div className="border-t border-slate-100 my-1"></div>
                                 <div className="max-h-60 overflow-y-auto px-2">
                                     {uniqueAssignees.length > 0 ? (
                                         <>
@@ -805,62 +861,64 @@ const App: React.FC = () => {
           </div>
 
           <div className="space-y-2 mt-2">
-            <div className="hidden md:block bg-slate-50 px-4 py-3 rounded-lg">
-                <div className="flex items-center">
-                    <div className="w-5 h-5 flex-shrink-0" aria-hidden="true"></div>
-                    <div className="ml-4 flex-1">
-                        <input
-                            ref={creatorTextRef}
-                            type="text"
-                            value={creatorText}
-                            onChange={(e) => setCreatorText(e.target.value)}
-                            onKeyDown={(e) => handleCreatorKeyDown(e, 'text')}
-                            placeholder="Add a new task..."
-                            className="w-full text-slate-700 p-0 m-0 border-none bg-transparent focus:ring-0 focus:outline-none placeholder-slate-400 text-sm"
-                        />
-                    </div>
-                    <div className="w-28">
-                        <input
-                            ref={creatorDateRef}
-                            type="date"
-                            value={creatorDate}
-                            onChange={(e) => setCreatorDate(e.target.value)}
-                            onKeyDown={(e) => handleCreatorKeyDown(e, 'date')}
-                            className="w-full text-sm text-slate-500 border-none bg-transparent p-0 text-center focus:ring-0 focus:outline-none hide-picker-indicator"
-                        />
-                    </div>
-                    <div className="w-24">
-                        <input
-                            ref={creatorTimeRef}
-                            type="time"
-                            value={creatorTime}
-                            onChange={(e) => setCreatorTime(e.target.value)}
-                            onKeyDown={(e) => handleCreatorKeyDown(e, 'time')}
-                            className="w-full text-sm text-slate-500 border-none bg-transparent p-0 text-center focus:ring-0 focus:outline-none hide-picker-indicator"
-                        />
-                    </div>
-                    <div className="w-28">
-                        <input
-                            ref={creatorWhomRef}
-                            type="text"
-                            value={creatorWhom}
-                            onChange={(e) => setCreatorWhom(e.target.value)}
-                            onKeyDown={(e) => handleCreatorKeyDown(e, 'whom')}
-                            placeholder="Assign to..."
-                            className="w-full text-sm text-slate-500 border-none bg-transparent p-0 text-center focus:ring-0 focus:outline-none placeholder-slate-400"
-                        />
-                    </div>
-                    <div className="w-20 flex items-center justify-center">
-                        <button
-                            onClick={handleAddTask}
-                            className="text-slate-400 hover:text-sky-600 p-2 rounded-full hover:bg-sky-100 transition-colors"
-                            aria-label="Add new task"
-                        >
-                            <PlusIcon className="w-5 h-5" />
-                        </button>
-                    </div>
-                </div>
-            </div>
+            {!isMobileCreatorVisible && (
+              <div className="hidden md:block bg-slate-50 px-4 py-3 rounded-lg">
+                  <div className="flex items-center">
+                      <div className="w-5 h-5 flex-shrink-0" aria-hidden="true"></div>
+                      <div className="ml-4 flex-1">
+                          <input
+                              ref={creatorTextRef}
+                              type="text"
+                              value={creatorText}
+                              onChange={(e) => setCreatorText(e.target.value)}
+                              onKeyDown={(e) => handleCreatorKeyDown(e, 'text')}
+                              placeholder="Add a new task..."
+                              className="w-full text-slate-700 p-0 m-0 border-none bg-transparent focus:ring-0 focus:outline-none placeholder-slate-400 text-sm"
+                          />
+                      </div>
+                      <div className="w-28">
+                          <input
+                              ref={creatorDateRef}
+                              type="date"
+                              value={creatorDate}
+                              onChange={(e) => setCreatorDate(e.target.value)}
+                              onKeyDown={(e) => handleCreatorKeyDown(e, 'date')}
+                              className="w-full text-sm text-slate-500 border-none bg-transparent p-0 text-center focus:ring-0 focus:outline-none hide-picker-indicator"
+                          />
+                      </div>
+                      <div className="w-24">
+                          <input
+                              ref={creatorTimeRef}
+                              type="time"
+                              value={creatorTime}
+                              onChange={(e) => setCreatorTime(e.target.value)}
+                              onKeyDown={(e) => handleCreatorKeyDown(e, 'time')}
+                              className="w-full text-sm text-slate-500 border-none bg-transparent p-0 text-center focus:ring-0 focus:outline-none hide-picker-indicator"
+                          />
+                      </div>
+                      <div className="w-28">
+                          <input
+                              ref={creatorWhomRef}
+                              type="text"
+                              value={creatorWhom}
+                              onChange={(e) => setCreatorWhom(e.target.value)}
+                              onKeyDown={(e) => handleCreatorKeyDown(e, 'whom')}
+                              placeholder="Assign to..."
+                              className="w-full text-sm text-slate-500 border-none bg-transparent p-0 text-center focus:ring-0 focus:outline-none placeholder-slate-400"
+                          />
+                      </div>
+                      <div className="w-20 flex items-center justify-center">
+                          <button
+                              onClick={handleAddTask}
+                              className="text-slate-400 hover:text-sky-600 p-2 rounded-full hover:bg-sky-100 transition-colors"
+                              aria-label="Add new task"
+                          >
+                              <PlusIcon className="w-5 h-5" />
+                          </button>
+                      </div>
+                  </div>
+              </div>
+            )}
             
             {isMobileCreatorVisible && (
               <div className="md:hidden bg-slate-50 p-4 rounded-lg">
@@ -925,7 +983,7 @@ const App: React.FC = () => {
               </div>
             )}
 
-            {filteredAndSortedTasks.length > 0 ? (
+            {isLoaded && filteredAndSortedTasks.length > 0 ? (
               filteredAndSortedTasks.map((task, index) => {
                 const isFirstCompleted = task.completed && (index === 0 || !filteredAndSortedTasks[index - 1].completed);
                 return (
@@ -937,7 +995,7 @@ const App: React.FC = () => {
                     </div>
                   )}
                   <div
-                    className={`bg-slate-50 px-4 py-3 rounded-lg flex items-center transition-all duration-300 hover:shadow-md hover:bg-white ${task.completed ? 'opacity-70' : ''}`}
+                    className={`group bg-slate-50 px-4 py-3 rounded-lg flex items-center transition-all duration-300 hover:shadow-md hover:bg-white ${task.completed ? 'opacity-70' : ''}`}
                   >
                     {editingTaskId === task.id ? (
                       <div ref={editingTaskRef} className="w-full flex flex-col md:flex-row md:items-center">
@@ -970,7 +1028,7 @@ const App: React.FC = () => {
                                   value={editingDate}
                                   onChange={(e) => setEditingDate(e.target.value)}
                                   onKeyDown={(e) => handleKeyDown(e, index, 'date')}
-                                  className="w-full text-base md:text-sm text-slate-500 p-2 rounded-md border border-slate-300 md:border-none md:p-0 md:bg-transparent focus:ring-1 focus:ring-sky-500 md:focus:ring-0 md:focus:outline-none md:text-center"
+                                  className="w-full text-base md:text-sm text-slate-500 p-2 rounded-md border border-slate-300 md:border-none md:p-0 md:bg-transparent focus:ring-1 focus:ring-sky-500 md:focus:ring-0 md:focus:outline-none md:text-center hide-picker-indicator"
                               />
                           </div>
                     
@@ -1021,18 +1079,74 @@ const App: React.FC = () => {
                             onChange={() => handleToggleComplete(task.id)}
                             className="h-5 w-5 rounded border-gray-300 text-sky-600 focus:ring-sky-500 cursor-pointer bg-white flex-shrink-0"
                           />
-                          <div className="ml-4 flex-1 cursor-pointer min-w-0" onClick={() => handleStartEditing(task, 'text')}>
-                              <span className={`text-base md:text-sm text-slate-700 break-words ${task.completed ? 'line-through text-slate-400' : ''}`}>
+                          <div className="ml-4 flex-1 min-w-0" onClick={() => handleStartEditing(task, 'text')}>
+                            <p className={`text-base md:text-sm text-slate-800 truncate ${task.completed ? 'line-through text-slate-500' : ''}`}>
                               {task.text}
-                              </span>
-                               <div className="flex items-center gap-2 text-sm text-slate-400 md:hidden flex-wrap">
-                                  {task.date && <span className="cursor-pointer hover:text-sky-600" onClick={(e) => { e.stopPropagation(); handleStartEditing(task, 'date'); }}>{formatDateForDisplay(task.date)}</span>}
-                                  {task.date && task.time && <span className="text-slate-300">&middot;</span>}
-                                  {task.time && <span className="cursor-pointer hover:text-sky-600" onClick={(e) => { e.stopPropagation(); handleStartEditing(task, 'time'); }}>{formatTimeForDisplay(task.time)}</span>}
-                                  {(task.date || task.time) && task.whom && <span className="text-slate-300">&middot;</span>}
-                                  {task.whom && <span className="cursor-pointer hover:text-sky-600" onClick={(e) => { e.stopPropagation(); handleStartEditing(task, 'whom'); }}>{task.whom}</span>}
-                              </div>
+                            </p>
+                            {(task.date || task.time || task.whom) && (
+                                <div className="md:hidden text-sm text-slate-500 mt-1 flex items-center flex-wrap">
+                                    {task.date && <span>{formatDateForDisplay(task.date)}</span>}
+                                    {task.date && task.time && <span className="mx-1.5">&middot;</span>}
+                                    {task.time && <span>{formatTimeForDisplay(task.time)}</span>}
+                                    {(task.date || task.time) && task.whom && <span className="mx-1.5">&middot;</span>}
+                                    {task.whom && <span className="font-medium">{task.whom}</span>}
+                                </div>
+                            )}
                           </div>
                         </div>
+                        <div className="hidden md:flex items-center flex-shrink-0 text-center text-sm">
+                          <div className="w-28 text-slate-500 cursor-pointer" onClick={() => handleStartEditing(task, 'date')}>
+                            {formatDateForDisplay(task.date)}
+                          </div>
+                          <div className="w-24 text-slate-500 cursor-pointer" onClick={() => handleStartEditing(task, 'time')}>
+                            {formatTimeForDisplay(task.time)}
+                          </div>
+                          <div className="w-28 text-slate-500 truncate cursor-pointer" onClick={() => handleStartEditing(task, 'whom')}>
+                            {task.whom}
+                          </div>
+                          <div className="w-20 flex items-center justify-center">
+                            <button
+                              onClick={() => handleDeleteTask(task.id)}
+                              className="text-slate-400 hover:text-red-600 p-2 rounded-full hover:bg-red-100 transition-colors opacity-0 group-hover:opacity-100 focus:opacity-100"
+                              aria-label="Delete task"
+                            >
+                              <TrashIcon />
+                            </button>
+                          </div>
+                        </div>
+                      </>
+                    )}
+                  </div>
+                </React.Fragment>
+                );
+              })
+            ) : (
+                <div className="text-center py-12 px-6 bg-slate-50 rounded-lg">
+                    <div className="mx-auto w-16 h-16 text-sky-300">
+                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-16 h-16">
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 6.75h7.5M8.25 12h7.5m-7.5 5.25h7.5m3-15H5.25c-1.12 0-2.06.914-2.06 2.06v11.88c0 1.146.94 2.06 2.06 2.06h11.88c1.12 0 2.06-.914 2.06-2.06V8.81c0-1.146-.94-2.06-2.06-2.06Z" />
+                        </svg>
+                    </div>
+                    <h3 className="mt-4 text-xl font-semibold text-slate-700">{isLoaded ? "All tasks accounted for!" : "Loading Tasks..."}</h3>
+                    <p className="mt-2 text-base text-slate-500">
+                        {isLoaded ? "Add a new task above to get started." : "Please wait a moment."}
+                    </p>
+                </div>
+            )}
+          </div>
+        </div>
+        {!isMobileCreatorVisible && (
+            <button 
+                onClick={() => setIsMobileCreatorVisible(true)}
+                className="md:hidden fixed bottom-6 right-6 bg-sky-500 text-white p-4 rounded-full shadow-lg hover:bg-sky-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-sky-500 transition-colors z-10"
+                aria-label="Add new task"
+            >
+                <PlusIcon className="w-6 h-6" />
+            </button>
+        )}
+      </main>
+    </div>
+  );
+};
 
-                        <div className="hidden md:flex items-center flex-shrink
+export default App;
