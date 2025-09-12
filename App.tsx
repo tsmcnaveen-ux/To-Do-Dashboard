@@ -9,6 +9,11 @@ const supabaseUrl = process.env.SUPABASE_URL || 'https://pkjwbkmciosrvbhpzglx.su
 const supabaseKey = process.env.SUPABASE_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBrandia21jaW9zcnZiaHB6Z2x4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTUwMDIwNzEsImV4cCI6MjA3MDU3ODA3MX0.Xkuvbre2CMOxRQBsDTZApQ8_AGKC_nxhmXTzx3uU8kE';
 const supabase = createClient(supabaseUrl, supabaseKey);
 
+interface PendingChange {
+  type: 'ADD' | 'UPDATE' | 'TOGGLE_COMPLETE' | 'DELETE';
+  payload: any;
+}
+
 
 // SVG Icon Components defined outside the main component
 const PlusIcon: FC<{ className?: string }> = ({ className }) => (
@@ -94,6 +99,9 @@ const App: React.FC = () => {
   const allFiltersCheckboxRef = useRef<HTMLInputElement>(null);
   const editingTaskRef = useRef<HTMLDivElement>(null);
 
+  const [pendingChanges, setPendingChanges] = useState<PendingChange[]>([]);
+  const saveTasksTimeoutRef = useRef<number | null>(null);
+
   const getDefaultDate = () => {
     const date = new Date();
     const year = date.getFullYear();
@@ -117,10 +125,97 @@ const App: React.FC = () => {
   const creatorTimeRef = useRef<HTMLInputElement>(null);
   const creatorWhomRef = useRef<HTMLInputElement>(null);
 
-  // --- Debounced Settings Save ---
   const saveSettingsTimeoutRef = useRef<number | null>(null);
 
-  // The actual function that sends the update to Supabase
+  const fetchTasks = useCallback(async () => {
+    try {
+      const { data, error } = await supabase
+        .from('tasks')
+        .select('*')
+        .order('created_at', { ascending: false });
+
+      if (error) throw error;
+      
+      if (data) {
+        setTasks(currentTasks => {
+            const serverState = JSON.stringify(data);
+            const clientState = JSON.stringify(currentTasks.filter(t => !pendingChanges.some(p => (p.payload.id === t.id) || (p.payload.tempId === t.id))));
+            if (serverState !== clientState) {
+                return data;
+            }
+            return currentTasks;
+        });
+      }
+    } catch (error) {
+      const supabaseError = error as { message: string };
+      console.error("Failed to fetch tasks from Supabase:", supabaseError.message || error);
+    }
+  }, [pendingChanges]);
+
+  // --- Debounced Task Save ---
+  const processPendingChanges = useCallback(async () => {
+    if (pendingChanges.length === 0) return;
+
+    const changesToProcess = [...pendingChanges];
+    setPendingChanges([]);
+
+    const additions = changesToProcess
+      .filter(c => c.type === 'ADD')
+      .map(c => {
+        const { tempId, ...data } = c.payload;
+        return data;
+      });
+
+    const updates = changesToProcess
+      .filter(c => c.type === 'UPDATE' || c.type === 'TOGGLE_COMPLETE');
+
+    const deletions = changesToProcess
+      .filter(c => c.type === 'DELETE')
+      .map(c => c.payload.id);
+
+    const promises = [];
+    
+    if (additions.length > 0) {
+      promises.push(supabase.from('tasks').insert(additions));
+    }
+
+    if (updates.length > 0) {
+      const consolidatedUpdates = new Map<number, any>();
+      updates.forEach(change => {
+          const existing = consolidatedUpdates.get(change.payload.id) || {};
+          consolidatedUpdates.set(change.payload.id, { ...existing, ...change.payload.updates });
+      });
+
+      for (const [id, taskUpdates] of consolidatedUpdates.entries()) {
+        promises.push(supabase.from('tasks').update(taskUpdates).eq('id', id));
+      }
+    }
+
+    if (deletions.length > 0) {
+      const uniqueDeletions = [...new Set(deletions)];
+      promises.push(supabase.from('tasks').delete().in('id', uniqueDeletions));
+    }
+
+    const results = await Promise.all(promises);
+    results.forEach(result => {
+      if (result.error) {
+        console.error("Supabase batch error:", result.error.message);
+      }
+    });
+    
+    await fetchTasks();
+  }, [pendingChanges, fetchTasks]);
+
+  const debouncedSaveChanges = useCallback(() => {
+    if (saveTasksTimeoutRef.current) {
+      clearTimeout(saveTasksTimeoutRef.current);
+    }
+    saveTasksTimeoutRef.current = window.setTimeout(() => {
+      processPendingChanges();
+    }, 1500);
+  }, [processPendingChanges]);
+
+
   const saveSettings = useCallback(async (settings: { filters: string[], sort: 'asc' | null }) => {
     setIsSavingSettings(true);
     try {
@@ -128,23 +223,20 @@ const App: React.FC = () => {
         .from('settings')
         .upsert({ id: 1, active_filters: settings.filters, sort_order: settings.sort });
 
-      if (error) {
-        console.error("Failed to sync settings:", error.message);
-      }
+      if (error) console.error("Failed to sync settings:", error.message);
+      
     } finally {
-      // Allow polling to resume after the save attempt is complete
       setIsSavingSettings(false);
     }
   }, []);
 
-  // The debounced wrapper that delays the execution of saveSettings
   const debouncedSaveSettings = useCallback((settings: { filters: string[], sort: 'asc' | null }) => {
     if (saveSettingsTimeoutRef.current) {
         clearTimeout(saveSettingsTimeoutRef.current);
     }
     saveSettingsTimeoutRef.current = window.setTimeout(() => {
         saveSettings(settings);
-    }, 500); // Wait for 500ms of inactivity before saving
+    }, 500);
   }, [saveSettings]);
 
 
@@ -172,7 +264,6 @@ const App: React.FC = () => {
   const sortTasks = useCallback((tasksToSort: Task[], sortOrder: 'asc' | null) => {
     const tasksCopy = [...tasksToSort];
     if (!sortOrder) {
-        // Only sort by completion status then by creation order (implicit from fetch)
         tasksCopy.sort((a, b) => {
             if (a.completed && !b.completed) return 1;
             if (!a.completed && b.completed) return -1;
@@ -182,37 +273,28 @@ const App: React.FC = () => {
     }
 
     tasksCopy.sort((a, b) => {
-        // Rule 1: Completed tasks always go to the bottom.
         if (a.completed && !b.completed) return 1;
         if (!a.completed && b.completed) return -1;
         
         const dateA = a.date || null;
         const dateB = b.date || null;
 
-        // Rule 2: Tasks with dates come before tasks without dates.
         if (dateA && !dateB) return -1;
         if (!dateA && dateB) return 1;
 
-        // Rule 3: Sort by date if both exist.
         if (dateA && dateB) {
             const dateComparison = dateA.localeCompare(dateB);
             if (dateComparison !== 0) return dateComparison;
         }
 
-        // If dates are the same (or both are null), sort by time.
         const timeA = a.time || null;
         const timeB = b.time || null;
 
-        // Rule 4: Tasks with times come before tasks without times (on the same day).
         if (timeA && !timeB) return -1;
         if (!timeA && timeB) return 1;
 
-        // Rule 5: Sort by time if both exist.
-        if (timeA && timeB) {
-             return timeA.localeCompare(timeB);
-        }
+        if (timeA && timeB) return timeA.localeCompare(timeB);
         
-        // If dates and times are equivalent, maintain original order.
         return 0;
     });
     return tasksCopy;
@@ -251,33 +333,8 @@ const App: React.FC = () => {
     return date.toLocaleTimeString('en-US', timeFormatOptions);
   };
   
-  const fetchTasks = useCallback(async () => {
-    try {
-      const { data, error } = await supabase
-        .from('tasks')
-        .select('*')
-        .order('created_at', { ascending: false });
-
-      if (error) {
-        throw error;
-      }
-      if (data) {
-        // IMPORTANT: Only update state if data has changed to prevent UI flicker.
-        setTasks(currentTasks => {
-            if (JSON.stringify(data) !== JSON.stringify(currentTasks)) {
-                return data;
-            }
-            return currentTasks;
-        });
-      }
-    } catch (error) {
-      const supabaseError = error as { message: string };
-      console.error("Failed to fetch tasks from Supabase:", supabaseError.message || error);
-    }
-  }, []);
-
   const fetchSettings = useCallback(async () => {
-    if (isSavingSettings) return; // Prevent fetching while a save is in progress
+    if (isSavingSettings) return;
     try {
         const { data, error } = await supabase
             .from('settings')
@@ -303,7 +360,6 @@ const App: React.FC = () => {
     }
   }, [isSavingSettings]);
 
-  // Initial data fetch and optimized polling
   useEffect(() => {
     const initialFetch = async () => {
       setIsLoaded(false);
@@ -312,7 +368,7 @@ const App: React.FC = () => {
     };
     initialFetch();
 
-    const POLLING_INTERVAL = 1000; // 1 second
+    const POLLING_INTERVAL = 5000;
     const intervalId = setInterval(() => {
       fetchTasks();
       fetchSettings();
@@ -365,11 +421,18 @@ const App: React.FC = () => {
     setEditingWhom('');
     setFocusOnField(null);
   }, []);
-
-  const saveTask = useCallback(async (): Promise<Task[] | null> => {
-    if (editingTaskId === null || editingText.trim() === '') {
-      handleCancelEditing();
+  
+  const prepareTaskUpdate = useCallback((): { id: number; updates: Partial<Task>; updatedTasks: Task[] } | null => {
+    if (editingTaskId === null) {
       return null;
+    }
+    // If editing text is cleared, treat it as a delete operation.
+    if (editingText.trim() === '') {
+        return {
+            id: editingTaskId,
+            updates: {}, // An empty update object signals a deletion.
+            updatedTasks: tasks.filter(t => t.id !== editingTaskId)
+        };
     }
     
     const taskUpdates = {
@@ -379,35 +442,49 @@ const App: React.FC = () => {
       whom: editingWhom.trim() || null,
     };
     
-    const { error } = await supabase
-      .from('tasks')
-      .update(taskUpdates)
-      .eq('id', editingTaskId);
-    
-    if (error) {
-      console.error("Failed to save task:", error.message);
-      return null; // Don't update state on failure
-    }
-    
     const updatedTasks = tasks.map(task =>
         task.id === editingTaskId ? { ...task, ...taskUpdates } : task
     );
-    return updatedTasks;
+    return { id: editingTaskId, updates: taskUpdates, updatedTasks };
 
-  }, [tasks, editingTaskId, editingText, editingDate, editingTime, editingWhom, handleCancelEditing]);
-  
-  const handleSaveEdit = useCallback(async () => {
-    const updatedTasks = await saveTask();
-    if (updatedTasks) {
-      setTasks(updatedTasks);
-      handleCancelEditing();
+  }, [tasks, editingTaskId, editingText, editingDate, editingTime, editingWhom]);
+
+  const commitEdit = useCallback(() => {
+    const result = prepareTaskUpdate();
+    if (!result) {
+        handleCancelEditing();
+        return tasks;
     }
-  }, [saveTask, handleCancelEditing]);
 
+    setTasks(result.updatedTasks); // Optimistic UI update
+
+    // If updates object is empty, it was a delete action.
+    if (Object.keys(result.updates).length > 0) {
+        setPendingChanges(currentChanges => [
+            ...currentChanges,
+            { type: 'UPDATE', payload: { id: result.id, updates: result.updates } }
+        ]);
+    } else {
+        setPendingChanges(currentChanges => [
+            ...currentChanges,
+            { type: 'DELETE', payload: { id: result.id } }
+        ]);
+    }
+    
+    debouncedSaveChanges();
+    return result.updatedTasks;
+
+  }, [prepareTaskUpdate, handleCancelEditing, debouncedSaveChanges, tasks]);
+
+  const handleSaveEdit = useCallback(() => {
+    commitEdit();
+    handleCancelEditing();
+  }, [commitEdit, handleCancelEditing]);
+  
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
       if (editingTaskRef.current && !editingTaskRef.current.contains(event.target as Node)) {
-        void handleSaveEdit();
+        handleSaveEdit();
       }
     };
 
@@ -437,33 +514,26 @@ const App: React.FC = () => {
     handleFilterChange(newFilters);
   };
 
-  const handleClearCompletedTasks = async () => {
+  const handleClearCompletedTasks = () => {
     const completedTaskIds = tasks.filter(t => t.completed).map(t => t.id);
     if(completedTaskIds.length === 0) return;
 
     // Optimistic update
-    const originalTasks = tasks;
     setTasks(prevTasks => prevTasks.filter(task => !task.completed));
     setIsMenuOpen(false);
     setMenuView('main');
+    
+    // Add delete operations to the change queue
+    const changes = completedTaskIds.map(id => ({
+      type: 'DELETE' as const,
+      payload: { id }
+    }));
+    setPendingChanges(currentChanges => [...currentChanges, ...changes]);
 
-    try {
-      const { error } = await supabase
-        .from('tasks')
-        .delete()
-        .in('id', completedTaskIds);
-      
-      if (error) {
-        setTasks(originalTasks); // Revert on error
-        throw error;
-      }
-    } catch (error) {
-      const supabaseError = error as { message: string };
-      console.error('Error clearing completed tasks:', supabaseError.message || error);
-    }
+    debouncedSaveChanges();
   };
 
-  const handleAddTask = async () => {
+  const handleAddTask = () => {
     if (creatorText.trim() === '') return;
 
     const newTaskData = {
@@ -474,46 +544,28 @@ const App: React.FC = () => {
       whom: creatorWhom.trim() || null,
     };
 
-    const originalTasks = tasks;
-    // Optimistic update for adding a new task
-    const tempId = Date.now(); // Use a temporary ID for the key
+    // Optimistic update with a temporary ID
+    const tempId = Date.now();
     const newTask = { ...newTaskData, id: tempId, created_at: new Date().toISOString() };
-    setTasks([newTask, ...originalTasks]);
+    setTasks(currentTasks => [newTask, ...currentTasks]);
 
-
-    try {
-        const { data, error } = await supabase
-            .from('tasks')
-            .insert(newTaskData)
-            .select()
-            .single();
-
-        if (error) {
-          setTasks(originalTasks); // Revert on error
-          throw error;
-        }
-
-        // After successful insert, replace the temp task with the real one from the DB
-        // This ensures the ID is correct for future edits/deletes.
-        if (data) {
-          setTasks(currentTasks => 
-            [data, ...currentTasks.filter(t => t.id !== tempId)]
-          );
-        }
+    // Add to change queue
+    setPendingChanges(currentChanges => [
+        ...currentChanges,
+        { type: 'ADD', payload: { ...newTaskData, tempId } }
+    ]);
+    
+    debouncedSaveChanges();
         
-        setCreatorText('');
-        setCreatorDate(getDefaultDate());
-        setCreatorTime('');
-        setCreatorWhom('');
-        
-        if (isMobileCreatorVisible) {
-            setIsMobileCreatorVisible(false);
-        } else {
-            creatorTextRef.current?.focus();
-        }
-    } catch(error) {
-        const supabaseError = error as { message: string };
-        console.error('Error adding task:', supabaseError.message || error);
+    setCreatorText('');
+    setCreatorDate(getDefaultDate());
+    setCreatorTime('');
+    setCreatorWhom('');
+    
+    if (isMobileCreatorVisible) {
+        setIsMobileCreatorVisible(false);
+    } else {
+        creatorTextRef.current?.focus();
     }
   };
   
@@ -574,56 +626,44 @@ const App: React.FC = () => {
     }
   };
 
-  const handleToggleComplete = async (id: number) => {
+  const handleToggleComplete = (id: number) => {
     const taskToUpdate = tasks.find(task => task.id === id);
     if (!taskToUpdate) return;
     
     const newCompletedStatus = !taskToUpdate.completed;
 
     // Optimistic update
-    const originalTasks = tasks;
-    setTasks(tasks.map(task =>
+    setTasks(currentTasks => currentTasks.map(task =>
         task.id === id ? { ...task, completed: newCompletedStatus } : task
     ));
     
-    try {
-      const { error } = await supabase
-        .from('tasks')
-        .update({ completed: newCompletedStatus })
-        .eq('id', id);
-
-      if (error) {
-        setTasks(originalTasks); // Revert on error
-        throw error;
-      }
-    } catch (error) {
-       const supabaseError = error as { message:string };
-       console.error('Error toggling complete status:', supabaseError.message || error);
-    }
+    // Add to change queue
+    setPendingChanges(currentChanges => [
+        ...currentChanges,
+        { 
+            type: 'TOGGLE_COMPLETE', 
+            payload: { id, updates: { completed: newCompletedStatus } } 
+        }
+    ]);
+    
+    debouncedSaveChanges();
   };
 
-  const handleDeleteTask = async (id: number) => {
+  const handleDeleteTask = (id: number) => {
     // Optimistic update
-    const originalTasks = tasks;
-    setTasks(tasks.filter(task => task.id !== id));
+    setTasks(currentTasks => currentTasks.filter(task => task.id !== id));
 
-    try {
-      const { error } = await supabase
-        .from('tasks')
-        .delete()
-        .eq('id', id);
+    // Add to change queue
+    setPendingChanges(currentChanges => [
+        ...currentChanges,
+        { type: 'DELETE', payload: { id } }
+    ]);
 
-      if (error) {
-        setTasks(originalTasks); // Revert on error
-        throw error;
-      }
-    } catch (error) {
-      const supabaseError = error as { message:string };
-      console.error('Error deleting task:', supabaseError.message || error);
-    }
+    debouncedSaveChanges();
   };
 
   const handleStartEditing = (task: Task, fieldToFocus: 'text' | 'date' | 'time' | 'whom' = 'text') => {
+    commitEdit(); // Save any previously editing task
     setEditingTaskId(task.id);
     setEditingText(task.text);
     setEditingDate(task.date || '');
@@ -632,15 +672,12 @@ const App: React.FC = () => {
     setFocusOnField(fieldToFocus);
   };
 
-  const handleSaveAndMove = async (currentTaskIndex: number, direction: 'up' | 'down' | 'left' | 'right' | 'enter') => {
-    const updatedTasks = await saveTask();
-    if (!updatedTasks) {
-        handleCancelEditing();
-        return;
-    }
-    setTasks(updatedTasks);
+  const handleSaveAndMove = (currentTaskIndex: number, direction: 'up' | 'down' | 'left' | 'right' | 'enter') => {
+    const previouslyEditingId = editingTaskId;
+    const updatedTasks = commitEdit();
+
+    if (!previouslyEditingId) return;
     
-    // Recalculate sorted/filtered tasks based on the updated list to avoid using stale data
     let tasksCopy = [...updatedTasks];
     if (activeFilters.length > 0) {
       tasksCopy = tasksCopy.filter(task => task.whom && activeFilters.includes(task.whom));
@@ -651,9 +688,8 @@ const App: React.FC = () => {
     const currentColIndex = colOrder.indexOf(focusOnField || 'text');
     const totalRows = sortedTasksCopy.length;
     
-    // Find the new index of the just-edited task in the potentially re-sorted list
-    const newCurrentTaskIndex = sortedTasksCopy.findIndex(t => t.id === editingTaskId);
-    if (newCurrentTaskIndex === -1) { // Task might have been filtered out
+    const newCurrentTaskIndex = sortedTasksCopy.findIndex(t => t.id === previouslyEditingId);
+    if (newCurrentTaskIndex === -1) {
         handleCancelEditing();
         return;
     }
@@ -664,7 +700,11 @@ const App: React.FC = () => {
     switch (direction) {
         case 'enter':
         case 'down':
-            nextRowIndex = (newCurrentTaskIndex + 1) % totalRows;
+            nextRowIndex = newCurrentTaskIndex + 1;
+            if (nextRowIndex >= totalRows) { // Stop at the last task
+                handleCancelEditing();
+                return;
+            }
             break;
         case 'up':
             nextRowIndex = (newCurrentTaskIndex - 1 + totalRows) % totalRows;
@@ -686,13 +726,10 @@ const App: React.FC = () => {
     }
   };
 
-  const handleKeyDown = async (e: React.KeyboardEvent<HTMLInputElement>, taskIndex: number, field: 'text' | 'date' | 'time' | 'whom') => {
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>, taskIndex: number, field: 'text' | 'date' | 'time' | 'whom') => {
     if (e.key === 'ArrowUp' && taskIndex === 0) {
         e.preventDefault();
-        const updatedTasks = await saveTask();
-        if (updatedTasks) {
-            setTasks(updatedTasks);
-        }
+        commitEdit();
         handleCancelEditing();
 
         if (field === 'date' && creatorDateRef.current) creatorDateRef.current.focus();
@@ -701,29 +738,35 @@ const App: React.FC = () => {
         else if (creatorTextRef.current) creatorTextRef.current.focus();
         return;
     }
+    if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+        e.preventDefault();
+        commitEdit();
+        handleCancelEditing();
+        return;
+    }
 
     switch (e.key) {
         case 'Enter':
             e.preventDefault();
-            await handleSaveAndMove(taskIndex, 'enter');
+            handleSaveAndMove(taskIndex, 'enter');
             break;
         case 'ArrowDown':
             e.preventDefault();
-            await handleSaveAndMove(taskIndex, 'down');
+            handleSaveAndMove(taskIndex, 'down');
             break;
         case 'ArrowUp':
             e.preventDefault();
-            await handleSaveAndMove(taskIndex, 'up');
+            handleSaveAndMove(taskIndex, 'up');
             break;
         case 'ArrowRight':
             if (field === 'text' && (e.target as HTMLInputElement).selectionStart !== (e.target as HTMLInputElement).value.length) return; 
             e.preventDefault();
-            await handleSaveAndMove(taskIndex, 'right');
+            handleSaveAndMove(taskIndex, 'right');
             break;
         case 'ArrowLeft':
             if (field === 'text' && (e.target as HTMLInputElement).selectionStart !== 0) return;
             e.preventDefault();
-            await handleSaveAndMove(taskIndex, 'left');
+            handleSaveAndMove(taskIndex, 'left');
             break;
         case 'Escape':
             e.preventDefault();
