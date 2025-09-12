@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useRef, FC, useMemo, useCallback } from 'react';
 import { Task } from './types';
 import { createClient } from '@supabase/supabase-js';
@@ -246,70 +247,43 @@ const App: React.FC = () => {
     return date.toLocaleTimeString('en-US', timeFormatOptions);
   };
   
-  useEffect(() => {
-    const fetchTasks = async () => {
-      try {
-        const { data, error } = await supabase
-          .from('tasks')
-          .select('*')
-          .order('created_at', { ascending: false });
+  const fetchTasks = useCallback(async () => {
+    try {
+      const { data, error } = await supabase
+        .from('tasks')
+        .select('*')
+        .order('created_at', { ascending: false });
 
-        if (error) {
-          throw error;
-        }
-        if (data) {
-          setTasks(data);
-        }
-      } catch (error) {
-        console.error("Failed to fetch tasks from Supabase", error);
+      if (error) {
+        throw error;
       }
+      if (data) {
+        setTasks(data);
+      }
+    } catch (error) {
+      console.error("Failed to fetch tasks from Supabase", error);
+    }
+  }, []);
+
+  // Initial data fetch
+  useEffect(() => {
+    const initialFetch = async () => {
+      setIsLoaded(false);
+      await fetchTasks();
       setIsLoaded(true);
     };
+    initialFetch();
+  }, [fetchTasks]);
 
-    fetchTasks();
-  }, []);
-  
+  // Polling to keep data in sync across devices
   useEffect(() => {
-    const channel = supabase.channel('realtime-tasks');
-
-    channel
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'tasks' },
-        (payload) => {
-          if (payload.eventType === 'INSERT') {
-            const newTask = payload.new as Task;
-            setTasks(currentTasks => {
-              if (currentTasks.some(task => task.id === newTask.id)) {
-                return currentTasks;
-              }
-              return [newTask, ...currentTasks];
-            });
-          }
-
-          if (payload.eventType === 'UPDATE') {
-            const updatedTask = payload.new as Task;
-            setTasks(currentTasks =>
-              currentTasks.map(task =>
-                task.id === updatedTask.id ? updatedTask : task
-              )
-            );
-          }
-
-          if (payload.eventType === 'DELETE') {
-            const deletedTask = payload.old as { id: number };
-            setTasks(currentTasks =>
-              currentTasks.filter(task => task.id !== deletedTask.id)
-            );
-          }
-        }
-      )
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(channel);
-    };
-  }, []);
+    const POLLING_INTERVAL = 1000; // 1 second
+    const intervalId = setInterval(() => {
+      fetchTasks();
+    }, POLLING_INTERVAL);
+  
+    return () => clearInterval(intervalId);
+  }, [fetchTasks]);
 
   useEffect(() => {
     localStorage.setItem('todo-sort-order', JSON.stringify(sortOrder));
@@ -461,13 +435,24 @@ const App: React.FC = () => {
       whom: creatorWhom.trim() || null,
     };
 
+    const originalTasks = tasks;
+    // Optimistic update for adding a new task
+    const tempId = Date.now(); // Use a temporary ID for the key
+    const newTask = { ...newTaskData, id: tempId, created_at: new Date().toISOString() };
+    setTasks([newTask, ...originalTasks]);
+
+
     try {
-        // No optimistic update needed here, as the real-time listener will add the task.
         const { error } = await supabase
             .from('tasks')
             .insert(newTaskData);
 
-        if (error) throw error;
+        if (error) {
+          setTasks(originalTasks); // Revert on error
+          throw error;
+        }
+        
+        // The polling will eventually sync the real task from the server
         
         setCreatorText('');
         setCreatorDate(getDefaultDate());
@@ -603,7 +588,7 @@ const App: React.FC = () => {
         handleCancelEditing();
         return;
     }
-    // We don't call setTasks here because the real-time listener will handle it.
+    setTasks(updatedTasks);
     
     // Recalculate sorted/filtered tasks based on the updated list to avoid using stale data
     let tasksCopy = [...updatedTasks];
