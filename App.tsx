@@ -63,9 +63,6 @@ const SparklesIcon: FC<{ className?: string }> = ({ className }) => (
     </svg>
 );
 
-
-type SortKey = 'text' | 'date' | 'time' | 'whom';
-
 const App: React.FC = () => {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [editingTaskId, setEditingTaskId] = useState<number | null>(null);
@@ -77,12 +74,12 @@ const App: React.FC = () => {
   const [isMobileCreatorVisible, setIsMobileCreatorVisible] = useState<boolean>(false);
   
   // Sorting and Filtering State
-  const [sortConfig, setSortConfig] = useState<{ key: SortKey | null; direction: 'asc' | 'desc' }>({ key: null, direction: 'asc' });
+  const [isDateSortActive, setIsDateSortActive] = useState<boolean>(false);
   const [activeFilters, setActiveFilters] = useState<string[]>([]);
   
   // Menu State
   const [isMenuOpen, setIsMenuOpen] = useState(false);
-  const [menuView, setMenuView] = useState<'main' | 'sort' | 'filter'>('main');
+  const [menuView, setMenuView] = useState<'main' | 'filter'>('main');
   const menuRef = useRef<HTMLDivElement>(null);
   const allFiltersCheckboxRef = useRef<HTMLInputElement>(null);
   const editingTaskRef = useRef<HTMLDivElement>(null);
@@ -133,6 +130,42 @@ const App: React.FC = () => {
     [activeFilters, uniqueAssignees]
   );
 
+  const sortTasks = useCallback((tasksToSort: Task[], sortActive: boolean) => {
+    const tasksCopy = [...tasksToSort];
+    tasksCopy.sort((a, b) => {
+        if (a.completed && !b.completed) return 1;
+        if (!a.completed && b.completed) return -1;
+        
+        if (sortActive) {
+            const dateA = a.date;
+            const dateB = b.date;
+
+            if (dateA && dateB) {
+                const dateComparison = dateA.localeCompare(dateB);
+                if (dateComparison !== 0) return dateComparison;
+            } else if (dateA) {
+                return -1;
+            } else if (dateB) {
+                return 1;
+            }
+            
+            const timeA = a.time;
+            const timeB = b.time;
+
+            if (timeA && timeB) {
+                return timeA.localeCompare(timeB);
+            } else if (timeA) {
+                return -1;
+            } else if (timeB) {
+                return 1;
+            }
+        }
+        
+        return 0;
+    });
+    return tasksCopy;
+  }, []);
+
   const filteredAndSortedTasks = useMemo(() => {
     let tasksCopy = [...tasks];
 
@@ -140,28 +173,8 @@ const App: React.FC = () => {
       tasksCopy = tasksCopy.filter(task => task.whom && activeFilters.includes(task.whom));
     }
     
-    tasksCopy.sort((a, b) => {
-        if (a.completed && !b.completed) return 1;
-        if (!a.completed && b.completed) return -1;
-        
-        if (sortConfig.key) {
-            const key = sortConfig.key;
-            const aValue = a[key];
-            const bValue = b[key];
-
-            if (!aValue) return 1;
-            if (!bValue) return -1;
-
-            const comparison = String(aValue).localeCompare(String(bValue), undefined, { numeric: true, sensitivity: 'base' });
-            
-            return sortConfig.direction === 'asc' ? comparison : -comparison;
-        }
-        
-        return 0;
-    });
-    
-    return tasksCopy;
-  }, [tasks, sortConfig, activeFilters]);
+    return sortTasks(tasksCopy, isDateSortActive);
+  }, [tasks, isDateSortActive, activeFilters, sortTasks]);
 
   const formatDateForDisplay = (dateString: string) => {
     if (!dateString) return '';
@@ -502,22 +515,14 @@ const App: React.FC = () => {
     if (activeFilters.length > 0) {
       tasksCopy = tasksCopy.filter(task => task.whom && activeFilters.includes(task.whom));
     }
-    tasksCopy.sort((a, b) => {
-      if (a.completed && !b.completed) return 1; if (!b.completed && b.completed) return -1;
-      if (sortConfig.key) {
-        const key = sortConfig.key; const aValue = a[key]; const bValue = b[key];
-        if (!aValue) return 1; if (!bValue) return -1;
-        const comparison = String(aValue).localeCompare(String(bValue), undefined, { numeric: true, sensitivity: 'base' });
-        return sortConfig.direction === 'asc' ? comparison : -comparison;
-      } return 0;
-    });
+    const sortedTasksCopy = sortTasks(tasksCopy, isDateSortActive);
     
     const colOrder: ('text' | 'date' | 'time' | 'whom')[] = ['text', 'date', 'time', 'whom'];
     const currentColIndex = colOrder.indexOf(focusOnField || 'text');
-    const totalRows = tasksCopy.length;
+    const totalRows = sortedTasksCopy.length;
     
     // Find the new index of the just-edited task in the potentially re-sorted list
-    const newCurrentTaskIndex = tasksCopy.findIndex(t => t.id === editingTaskId);
+    const newCurrentTaskIndex = sortedTasksCopy.findIndex(t => t.id === editingTaskId);
     if (newCurrentTaskIndex === -1) { // Task might have been filtered out
         handleCancelEditing();
         return;
@@ -542,7 +547,7 @@ const App: React.FC = () => {
             break;
     }
 
-    const nextTaskToEdit = tasksCopy[nextRowIndex];
+    const nextTaskToEdit = sortedTasksCopy[nextRowIndex];
     const nextFieldToFocus = colOrder[nextColIndex];
     handleStartEditing(nextTaskToEdit, nextFieldToFocus);
   };
@@ -597,25 +602,7 @@ const App: React.FC = () => {
   const completedTasks = tasks.filter(t => t.completed).length;
   const totalTasks = tasks.length;
   const progress = totalTasks > 0 ? (completedTasks / totalTasks) * 100 : 0;
-  const isFilterOrSortActive = activeFilters.length > 0 || sortConfig.key !== null;
-
-  const renderSortOption = (label: string, key: SortKey | null, direction: 'asc' | 'desc') => {
-    const isActive = sortConfig.key === key && sortConfig.direction === direction;
-    return (
-        <button
-            onClick={() => {
-                setSortConfig({ key, direction });
-                setIsMenuOpen(false);
-                setMenuView('main');
-            }}
-            className={`w-full text-left flex justify-between items-center px-4 py-2 text-sm ${isActive ? 'bg-sky-100 text-sky-700' : 'text-slate-700'} hover:bg-slate-100 transition-colors`}
-            role="menuitem"
-        >
-            <span>{label}</span>
-            {isActive && <CheckIcon className="w-4 h-4 text-sky-600" />}
-        </button>
-    );
-  };
+  const isFilterOrSortActive = activeFilters.length > 0 || isDateSortActive;
 
   return (
     <div className="bg-slate-100 min-h-screen font-sans text-gray-800 flex justify-center md:items-center p-4" style={{ colorScheme: 'light' }}>
@@ -654,10 +641,14 @@ const App: React.FC = () => {
                         {menuView === 'main' && (
                             <div className="p-1 flex items-center space-x-1">
                                 <button
-                                    onClick={() => setMenuView('sort')}
-                                    className="p-2 rounded-md text-slate-500 hover:bg-slate-100 hover:text-slate-700 transition-colors focus:outline-none focus:ring-2 focus:ring-sky-500"
-                                    aria-label="Sort tasks"
-                                    title="Sort tasks"
+                                    onClick={() => {
+                                        setIsDateSortActive(prev => !prev);
+                                        setIsMenuOpen(false);
+                                    }}
+                                    className={`p-2 rounded-md ${isDateSortActive ? 'text-sky-600 bg-sky-100' : 'text-slate-500'} hover:bg-slate-100 hover:text-slate-700 transition-colors focus:outline-none focus:ring-2 focus:ring-sky-500`}
+                                    aria-label="Sort tasks by date and time"
+                                    title="Sort by Date & Time"
+                                    aria-pressed={isDateSortActive}
                                 >
                                     <ArrowsUpDownIcon className="w-5 h-5" />
                                 </button>
@@ -686,24 +677,6 @@ const App: React.FC = () => {
                                         </button>
                                     </>
                                 )}
-                            </div>
-                        )}
-                        {menuView === 'sort' && (
-                            <div className="py-1">
-                                <button onClick={() => setMenuView('main')} className="w-full text-left flex items-center px-4 py-2 text-sm text-slate-700 hover:bg-slate-100 transition-colors font-semibold">
-                                    <ChevronLeftIcon className="w-4 h-4 mr-2" />
-                                    Back
-                                </button>
-                                <div className="border-t border-slate-100 mb-1"></div>
-                                <div className="px-4 py-2 text-xs text-slate-500 uppercase font-semibold tracking-wider">Sort by</div>
-                                {renderSortOption('Date (Newest first)', 'date', 'desc')}
-                                {renderSortOption('Date (Oldest first)', 'date', 'asc')}
-                                {renderSortOption('Time (Earliest first)', 'time', 'asc')}
-                                {renderSortOption('Time (Latest first)', 'time', 'desc')}
-                                {renderSortOption('Assignee (A-Z)', 'whom', 'asc')}
-                                {renderSortOption('Assignee (Z-A)', 'whom', 'desc')}
-                                <div className="border-t border-slate-100 my-1"></div>
-                                {renderSortOption('Default Order', null, 'asc')}
                             </div>
                         )}
                         {menuView === 'filter' && (
