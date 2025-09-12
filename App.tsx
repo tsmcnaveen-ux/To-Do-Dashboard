@@ -51,15 +51,21 @@ const FunnelIcon: FC<{ className?: string }> = ({ className }) => (
     </svg>
 );
 
-const ArrowsUpDownIcon: FC<{ className?: string }> = ({ className }) => (
-    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className={className || "w-5 h-5"}>
-      <path strokeLinecap="round" strokeLinejoin="round" d="M3 7.5 7.5 3m0 0L12 7.5M7.5 3v13.5m13.5 0L16.5 21m0 0L12 16.5m4.5 4.5V7.5" />
-    </svg>
-);
-
 const SparklesIcon: FC<{ className?: string }> = ({ className }) => (
     <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className={className || "w-5 h-5"}>
       <path strokeLinecap="round" strokeLinejoin="round" d="M9.813 15.904 9 18.75l-.813-2.846a4.5 4.5 0 0 0-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 0 0 3.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 0 0 3.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 0 0-3.09 3.09ZM18.259 8.715 18 9.75l-.259-1.035a3.375 3.375 0 0 0-2.455-2.456L14.25 6l1.036-.259a3.375 3.375 0 0 0 2.455-2.456L18 2.25l.259 1.035a3.375 3.375 0 0 0 2.456 2.456L21.75 6l-1.035.259a3.375 3.375 0 0 0-2.456 2.456Z" />
+    </svg>
+);
+
+const SortAscendingIcon: FC<{ className?: string }> = ({ className }) => (
+    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className={className || "w-5 h-5"}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M3 4.5h14.25M3 9h9.75M3 13.5h5.25m5.25-.75L17.25 9m0 0L21 12.75M17.25 9v12" />
+    </svg>
+);
+
+const SortDescendingIcon: FC<{ className?: string }> = ({ className }) => (
+    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className={className || "w-5 h-5"}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M3 4.5h14.25M3 9h9.75M3 13.5h5.25m5.25 6L17.25 21m0 0L21 17.25M17.25 21V9" />
     </svg>
 );
 
@@ -74,8 +80,35 @@ const App: React.FC = () => {
   const [isMobileCreatorVisible, setIsMobileCreatorVisible] = useState<boolean>(false);
   
   // Sorting and Filtering State
-  const [isDateSortActive, setIsDateSortActive] = useState<boolean>(false);
-  const [activeFilters, setActiveFilters] = useState<string[]>([]);
+  const [sortOrder, setSortOrder] = useState<'asc' | 'desc' | null>(() => {
+    const saved = localStorage.getItem('todo-sort-order');
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved);
+        if (parsed === 'asc' || parsed === 'desc') {
+          return parsed;
+        }
+      } catch (e) {
+        return null;
+      }
+    }
+    return null;
+  });
+
+  const [activeFilters, setActiveFilters] = useState<string[]>(() => {
+    const saved = localStorage.getItem('todo-active-filters');
+    if (saved) {
+        try {
+            const parsed = JSON.parse(saved);
+            if (Array.isArray(parsed)) {
+                return parsed;
+            }
+        } catch (e) {
+            return [];
+        }
+    }
+    return [];
+  });
   
   // Menu State
   const [isMenuOpen, setIsMenuOpen] = useState(false);
@@ -130,38 +163,32 @@ const App: React.FC = () => {
     [activeFilters, uniqueAssignees]
   );
 
-  const sortTasks = useCallback((tasksToSort: Task[], sortActive: boolean) => {
+  const sortTasks = useCallback((tasksToSort: Task[], sortOrder: 'asc' | 'desc' | null) => {
     const tasksCopy = [...tasksToSort];
+    if (!sortOrder) {
+        // Only sort by completion status then by creation order (implicit)
+        tasksCopy.sort((a, b) => {
+            if (a.completed && !b.completed) return 1;
+            if (!a.completed && b.completed) return -1;
+            return 0;
+        });
+        return tasksCopy;
+    }
+
     tasksCopy.sort((a, b) => {
         if (a.completed && !b.completed) return 1;
         if (!a.completed && b.completed) return -1;
         
-        if (sortActive) {
-            const dateA = a.date;
-            const dateB = b.date;
-
-            if (dateA && dateB) {
-                const dateComparison = dateA.localeCompare(dateB);
-                if (dateComparison !== 0) return dateComparison;
-            } else if (dateA) {
-                return -1;
-            } else if (dateB) {
-                return 1;
-            }
-            
-            const timeA = a.time;
-            const timeB = b.time;
-
-            if (timeA && timeB) {
-                return timeA.localeCompare(timeB);
-            } else if (timeA) {
-                return -1;
-            } else if (timeB) {
-                return 1;
-            }
-        }
+        const dateA = a.date || '';
+        const dateB = b.date || '';
         
-        return 0;
+        const dateComparison = sortOrder === 'asc' ? dateA.localeCompare(dateB) : dateB.localeCompare(dateA);
+        if (dateComparison !== 0) return dateComparison;
+
+        const timeA = a.time || '';
+        const timeB = b.time || '';
+        
+        return sortOrder === 'asc' ? timeA.localeCompare(timeB) : timeB.localeCompare(timeA);
     });
     return tasksCopy;
   }, []);
@@ -173,8 +200,8 @@ const App: React.FC = () => {
       tasksCopy = tasksCopy.filter(task => task.whom && activeFilters.includes(task.whom));
     }
     
-    return sortTasks(tasksCopy, isDateSortActive);
-  }, [tasks, isDateSortActive, activeFilters, sortTasks]);
+    return sortTasks(tasksCopy, sortOrder);
+  }, [tasks, sortOrder, activeFilters, sortTasks]);
 
   const formatDateForDisplay = (dateString: string) => {
     if (!dateString) return '';
@@ -221,6 +248,14 @@ const App: React.FC = () => {
 
     fetchTasks();
   }, []);
+  
+  useEffect(() => {
+    localStorage.setItem('todo-sort-order', JSON.stringify(sortOrder));
+  }, [sortOrder]);
+
+  useEffect(() => {
+    localStorage.setItem('todo-active-filters', JSON.stringify(activeFilters));
+  }, [activeFilters]);
 
   useEffect(() => {
     if (editingTaskId === null) return;
@@ -515,7 +550,7 @@ const App: React.FC = () => {
     if (activeFilters.length > 0) {
       tasksCopy = tasksCopy.filter(task => task.whom && activeFilters.includes(task.whom));
     }
-    const sortedTasksCopy = sortTasks(tasksCopy, isDateSortActive);
+    const sortedTasksCopy = sortTasks(tasksCopy, sortOrder);
     
     const colOrder: ('text' | 'date' | 'time' | 'whom')[] = ['text', 'date', 'time', 'whom'];
     const currentColIndex = colOrder.indexOf(focusOnField || 'text');
@@ -602,7 +637,7 @@ const App: React.FC = () => {
   const completedTasks = tasks.filter(t => t.completed).length;
   const totalTasks = tasks.length;
   const progress = totalTasks > 0 ? (completedTasks / totalTasks) * 100 : 0;
-  const isFilterOrSortActive = activeFilters.length > 0 || isDateSortActive;
+  const isFilterOrSortActive = activeFilters.length > 0 || sortOrder !== null;
 
   return (
     <div className="bg-slate-100 min-h-screen font-sans text-gray-800 flex justify-center md:items-center p-4" style={{ colorScheme: 'light' }}>
@@ -641,26 +676,13 @@ const App: React.FC = () => {
                         {menuView === 'main' && (
                             <div className="p-1 flex items-center space-x-1">
                                 <button
-                                    onClick={() => {
-                                        setIsDateSortActive(prev => !prev);
-                                        setIsMenuOpen(false);
-                                    }}
-                                    className={`p-2 rounded-md ${isDateSortActive ? 'text-sky-600 bg-sky-100' : 'text-slate-500'} hover:bg-slate-100 hover:text-slate-700 transition-colors focus:outline-none focus:ring-2 focus:ring-sky-500`}
-                                    aria-label="Sort tasks by date and time"
-                                    title="Sort by Date & Time"
-                                    aria-pressed={isDateSortActive}
-                                >
-                                    <ArrowsUpDownIcon className="w-5 h-5" />
-                                </button>
-                                <div className="h-5 w-px bg-slate-200" aria-hidden="true"></div>
-                                <button
                                     onClick={() => setMenuView('filter')}
                                     className="relative p-2 rounded-md text-slate-500 hover:bg-slate-100 hover:text-slate-700 transition-colors focus:outline-none focus:ring-2 focus:ring-sky-500"
-                                    aria-label="Filter tasks"
-                                    title="Filter tasks"
+                                    aria-label="Filter & Sort tasks"
+                                    title="Filter & Sort"
                                 >
                                     <FunnelIcon className="w-5 h-5" />
-                                    {activeFilters.length > 0 && (
+                                    {isFilterOrSortActive && (
                                         <span className="absolute top-1.5 right-1.5 block h-2 w-2 rounded-full bg-sky-500 ring-2 ring-white" />
                                     )}
                                 </button>
@@ -680,43 +702,71 @@ const App: React.FC = () => {
                             </div>
                         )}
                         {menuView === 'filter' && (
-                            <div className="py-1">
+                             <div className="py-1">
                                 <button onClick={() => setMenuView('main')} className="w-full text-left flex items-center px-4 py-2 text-sm text-slate-700 hover:bg-slate-100 transition-colors font-semibold">
                                     <ChevronLeftIcon className="w-4 h-4 mr-2" />
                                     Back
                                 </button>
                                 <div className="border-t border-slate-100 mb-1"></div>
-                                <div className="px-4 py-2 text-xs text-slate-500 uppercase font-semibold tracking-wider">Filter by Assignee</div>
+
+                                <div className="px-4 py-2">
+                                    <div className="text-xs text-slate-500 uppercase font-semibold tracking-wider mb-2">Sort by Date</div>
+                                    <div className="flex items-center space-x-2">
+                                        <button
+                                            onClick={() => setSortOrder(prev => prev === 'asc' ? null : 'asc')}
+                                            className={`flex-1 flex items-center justify-center p-2 rounded-md transition-colors focus:outline-none focus:ring-2 focus:ring-sky-500 ${sortOrder === 'asc' ? 'bg-sky-100 text-sky-600' : 'bg-slate-100 text-slate-500 hover:bg-slate-200'}`}
+                                            aria-pressed={sortOrder === 'asc'}
+                                            title="Sort oldest first"
+                                        >
+                                            <SortAscendingIcon className="w-5 h-5 mr-2" />
+                                            <span className="text-sm font-medium">Oldest</span>
+                                        </button>
+                                        <button
+                                            onClick={() => setSortOrder(prev => prev === 'desc' ? null : 'desc')}
+                                            className={`flex-1 flex items-center justify-center p-2 rounded-md transition-colors focus:outline-none focus:ring-2 focus:ring-sky-500 ${sortOrder === 'desc' ? 'bg-sky-100 text-sky-600' : 'bg-slate-100 text-slate-500 hover:bg-slate-200'}`}
+                                            aria-pressed={sortOrder === 'desc'}
+                                            title="Sort newest first"
+                                        >
+                                            <SortDescendingIcon className="w-5 h-5 mr-2" />
+                                            <span className="text-sm font-medium">Newest</span>
+                                        </button>
+                                    </div>
+                                </div>
+                                
+                                {uniqueAssignees.length > 0 && <div className="border-t border-slate-100 my-1"></div>}
+                                
                                 <div className="max-h-60 overflow-y-auto px-2">
-                                    <label className="w-full text-left flex items-center px-2 py-2 text-sm text-slate-700 hover:bg-slate-100 transition-colors cursor-pointer rounded-md">
-                                        <input
-                                            ref={allFiltersCheckboxRef}
-                                            type="checkbox"
-                                            checked={areAllFiltersSelected}
-                                            onChange={handleToggleAllFilters}
-                                            className="h-4 w-4 rounded border-gray-300 text-sky-600 focus:ring-sky-500 focus:ring-1 focus:ring-offset-0 mr-3"
-                                        />
-                                        <span>All</span>
-                                    </label>
-                                    <div className="border-t border-slate-200 my-1 mx-2"></div>
                                     {uniqueAssignees.length > 0 ? (
-                                        uniqueAssignees.map(assignee => (
-                                            <label key={assignee} className="w-full text-left flex items-center px-2 py-2 text-sm text-slate-700 hover:bg-slate-100 transition-colors cursor-pointer rounded-md">
+                                        <>
+                                            <label className="w-full text-left flex items-center px-2 py-2 text-sm text-slate-700 hover:bg-slate-100 transition-colors cursor-pointer rounded-md">
                                                 <input
+                                                    ref={allFiltersCheckboxRef}
                                                     type="checkbox"
-                                                    checked={activeFilters.includes(assignee)}
-                                                    onChange={() => {
-                                                        setActiveFilters(prev => 
-                                                            prev.includes(assignee) 
-                                                            ? prev.filter(a => a !== assignee) 
-                                                            : [...prev, assignee]
-                                                        )
-                                                    }}
+                                                    checked={areAllFiltersSelected}
+                                                    onChange={handleToggleAllFilters}
                                                     className="h-4 w-4 rounded border-gray-300 text-sky-600 focus:ring-sky-500 focus:ring-1 focus:ring-offset-0 mr-3"
                                                 />
-                                                <span>{assignee}</span>
+                                                <span>All</span>
                                             </label>
-                                        ))
+                                            <div className="border-t border-slate-200 my-1 mx-2"></div>
+                                            {uniqueAssignees.map(assignee => (
+                                                <label key={assignee} className="w-full text-left flex items-center px-2 py-2 text-sm text-slate-700 hover:bg-slate-100 transition-colors cursor-pointer rounded-md">
+                                                    <input
+                                                        type="checkbox"
+                                                        checked={activeFilters.includes(assignee)}
+                                                        onChange={() => {
+                                                            setActiveFilters(prev => 
+                                                                prev.includes(assignee) 
+                                                                ? prev.filter(a => a !== assignee) 
+                                                                : [...prev, assignee]
+                                                            )
+                                                        }}
+                                                        className="h-4 w-4 rounded border-gray-300 text-sky-600 focus:ring-sky-500 focus:ring-1 focus:ring-offset-0 mr-3"
+                                                    />
+                                                    <span>{assignee}</span>
+                                                </label>
+                                            ))}
+                                        </>
                                     ) : (
                                         <div className="px-4 py-2 text-sm text-slate-500">No assignees found</div>
                                     )}
@@ -985,56 +1035,4 @@ const App: React.FC = () => {
                           </div>
                         </div>
 
-                        <div className="hidden md:flex items-center flex-shrink-0">
-                          <span className="text-sm text-slate-500 w-28 text-center cursor-pointer" onClick={() => handleStartEditing(task, 'date')}>{formatDateForDisplay(task.date)}</span>
-                          <span className="text-sm text-slate-500 w-24 text-center cursor-pointer" onClick={() => handleStartEditing(task, 'time')}>{formatTimeForDisplay(task.time)}</span>
-                          <span className="text-sm text-slate-500 w-28 text-center cursor-pointer" onClick={() => handleStartEditing(task, 'whom')}>{task.whom}</span>
-                          <div className="flex items-center justify-center w-20">
-                              <button
-                              onClick={() => handleDeleteTask(task.id)}
-                              className="text-slate-400 hover:text-red-600 p-2 rounded-full hover:bg-red-100 transition-colors"
-                              aria-label="Delete task"
-                              >
-                              <TrashIcon />
-                              </button>
-                          </div>
-                        </div>
-                        <div className="flex items-center gap-2 md:hidden">
-                          <button
-                            onClick={() => handleDeleteTask(task.id)}
-                            className="text-slate-400 hover:text-red-600 p-2 rounded-full hover:bg-red-100 transition-colors"
-                            aria-label="Delete task"
-                          >
-                            <TrashIcon />
-                          </button>
-                        </div>
-                      </>
-                    )}
-                  </div>
-                </React.Fragment>
-              )})
-            ) : (
-                <div className="text-center py-8 border-t border-slate-200 mt-4">
-                    <p className="text-slate-500">{ isLoaded ? (activeFilters.length > 0 ? `No tasks found for the selected filters.` : "You have no tasks yet. Add one to get started!") : "Loading tasks..."}</p>
-                </div>
-            )}
-          </div>
-        </div>
-        {!isMobileCreatorVisible && (
-          <button
-            onClick={() => {
-              setIsMobileCreatorVisible(true);
-              setTimeout(() => creatorTextRef.current?.focus(), 100);
-            }}
-            className="md:hidden fixed bottom-6 right-6 bg-sky-500 text-white p-4 rounded-full shadow-lg hover:bg-sky-600 transition-transform transform hover:scale-110 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-sky-500 z-10"
-            aria-label="Add new task"
-          >
-            <PlusIcon className="w-6 h-6" />
-          </button>
-        )}
-      </main>
-    </div>
-  );
-};
-
-export default App;
+                        <div className="hidden md:flex items-center flex-shrink
