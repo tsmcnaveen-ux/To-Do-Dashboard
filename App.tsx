@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useRef, FC, useMemo, useCallback } from 'react';
 import { Task } from './types';
 import { createClient } from '@supabase/supabase-js';
@@ -117,6 +116,36 @@ const App: React.FC = () => {
   const creatorDateRef = useRef<HTMLInputElement>(null);
   const creatorTimeRef = useRef<HTMLInputElement>(null);
   const creatorWhomRef = useRef<HTMLInputElement>(null);
+
+  // --- Debounced Settings Save ---
+  const saveSettingsTimeoutRef = useRef<number | null>(null);
+
+  // The actual function that sends the update to Supabase
+  const saveSettings = useCallback(async (settings: { filters: string[], sort: 'asc' | null }) => {
+    setIsSavingSettings(true);
+    try {
+      const { error } = await supabase
+        .from('settings')
+        .upsert({ id: 1, active_filters: settings.filters, sort_order: settings.sort });
+
+      if (error) {
+        console.error("Failed to sync settings:", error.message);
+      }
+    } finally {
+      // Allow polling to resume after the save attempt is complete
+      setIsSavingSettings(false);
+    }
+  }, []);
+
+  // The debounced wrapper that delays the execution of saveSettings
+  const debouncedSaveSettings = useCallback((settings: { filters: string[], sort: 'asc' | null }) => {
+    if (saveSettingsTimeoutRef.current) {
+        clearTimeout(saveSettingsTimeoutRef.current);
+    }
+    saveSettingsTimeoutRef.current = window.setTimeout(() => {
+        saveSettings(settings);
+    }, 500); // Wait for 500ms of inactivity before saving
+  }, [saveSettings]);
 
 
   const timeFormatOptions: Intl.DateTimeFormatOptions = {
@@ -391,21 +420,9 @@ const App: React.FC = () => {
     };
   }, [editingTaskId, handleSaveEdit]);
   
-  // FIX: Refactored to use async/await with a try/finally block to address the TypeScript error.
-  const handleFilterChange = async (newFilters: string[]) => {
+  const handleFilterChange = (newFilters: string[]) => {
       setActiveFilters(newFilters);
-      setIsSavingSettings(true);
-      try {
-        const { error } = await supabase
-          .from('settings')
-          .upsert({ id: 1, active_filters: newFilters });
-        
-        if (error) {
-          console.error("Failed to sync filter settings:", error.message);
-        }
-      } finally {
-        setIsSavingSettings(false);
-      }
+      debouncedSaveSettings({ filters: newFilters, sort: sortOrder });
   };
 
   const handleToggleAllFilters = () => {
@@ -717,24 +734,11 @@ const App: React.FC = () => {
     }
   };
   
-  // FIX: Refactored to use async/await with a try/finally block to address the TypeScript error.
-  const handleSortClick = async () => {
+  const handleSortClick = () => {
     const newSortOrder = sortOrder === 'asc' ? null : 'asc';
-    setSortOrder(newSortOrder); // Optimistic local update
+    setSortOrder(newSortOrder);
     setIsMenuOpen(false);
-    
-    setIsSavingSettings(true);
-    try {
-      const { error } = await supabase
-        .from('settings')
-        .upsert({ id: 1, sort_order: newSortOrder });
-
-      if (error) {
-        console.error("Failed to sync sort setting:", error.message);
-      }
-    } finally {
-        setIsSavingSettings(false);
-    }
+    debouncedSaveSettings({ filters: activeFilters, sort: newSortOrder });
   };
 
   const completedTasks = tasks.filter(t => t.completed).length;
