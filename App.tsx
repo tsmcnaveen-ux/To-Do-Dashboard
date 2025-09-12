@@ -4,8 +4,10 @@ import { Task } from './types';
 import { createClient } from '@supabase/supabase-js';
 
 // --- Supabase Client Setup ---
-const supabaseUrl = 'https://pkjwbkmciosrvbhpzglx.supabase.co';
-const supabaseKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBrandia21jaW9zcnZiaHB6Z2x4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTUwMDIwNzEsImV4cCI6MjA3MDU3ODA3MX0.Xkuvbre2CMOxRQBsDTZApQ8_AGKC_nxhmXTzx3uU8kE';
+// IMPORTANT: For security, these should be stored in environment variables, not hardcoded.
+// This app assumes SUPABASE_URL and SUPABASE_KEY are set in the execution environment.
+const supabaseUrl = process.env.SUPABASE_URL || 'https://pkjwbkmciosrvbhpzglx.supabase.co';
+const supabaseKey = process.env.SUPABASE_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBrandia21jaW9zcnZiaHB6Z2x4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTUwMDIwNzEsImV4cCI6MjA3MDU3ODA3MX0.Xkuvbre2CMOxRQBsDTZApQ8_AGKC_nxhmXTzx3uU8kE';
 const supabase = createClient(supabaseUrl, supabaseKey);
 
 
@@ -94,7 +96,6 @@ const App: React.FC = () => {
 
   const getDefaultDate = () => {
     const date = new Date();
-    date.setFullYear(2025);
     const year = date.getFullYear();
     const month = String(date.getMonth() + 1).padStart(2, '0');
     const day = String(date.getDate()).padStart(2, '0');
@@ -231,7 +232,13 @@ const App: React.FC = () => {
         throw error;
       }
       if (data) {
-        setTasks(data);
+        // IMPORTANT: Only update state if data has changed to prevent UI flicker.
+        setTasks(currentTasks => {
+            if (JSON.stringify(data) !== JSON.stringify(currentTasks)) {
+                return data;
+            }
+            return currentTasks;
+        });
       }
     } catch (error) {
       console.error("Failed to fetch tasks from Supabase", error);
@@ -263,7 +270,7 @@ const App: React.FC = () => {
     }
   }, []);
 
-  // Initial data fetch
+  // Initial data fetch and optimized polling
   useEffect(() => {
     const initialFetch = async () => {
       setIsLoaded(false);
@@ -271,16 +278,13 @@ const App: React.FC = () => {
       setIsLoaded(true);
     };
     initialFetch();
-  }, [fetchTasks, fetchSettings]);
 
-  // Polling to keep data in sync across devices
-  useEffect(() => {
-    const POLLING_INTERVAL = 100; // 0.1 seconds
+    const POLLING_INTERVAL = 1000; // 1 second
     const intervalId = setInterval(() => {
       fetchTasks();
       fetchSettings();
     }, POLLING_INTERVAL);
-  
+      
     return () => clearInterval(intervalId);
   }, [fetchTasks, fetchSettings]);
 
@@ -449,16 +453,24 @@ const App: React.FC = () => {
 
 
     try {
-        const { error } = await supabase
+        const { data, error } = await supabase
             .from('tasks')
-            .insert(newTaskData);
+            .insert(newTaskData)
+            .select()
+            .single();
 
         if (error) {
           setTasks(originalTasks); // Revert on error
           throw error;
         }
-        
-        // The polling will eventually sync the real task from the server
+
+        // After successful insert, replace the temp task with the real one from the DB
+        // This ensures the ID is correct for future edits/deletes.
+        if (data) {
+          setTasks(currentTasks => 
+            [data, ...currentTasks.filter(t => t.id !== tempId)]
+          );
+        }
         
         setCreatorText('');
         setCreatorDate(getDefaultDate());
