@@ -82,35 +82,8 @@ const App: React.FC = () => {
   const [isMobileCreatorVisible, setIsMobileCreatorVisible] = useState<boolean>(false);
   
   // Sorting and Filtering State
-  const [sortOrder, setSortOrder] = useState<'asc' | null>(() => {
-    const saved = localStorage.getItem('todo-sort-order');
-    if (saved) {
-      try {
-        const parsed = JSON.parse(saved);
-        if (parsed === 'asc') {
-          return parsed;
-        }
-      } catch (e) {
-        return null;
-      }
-    }
-    return null;
-  });
-
-  const [activeFilters, setActiveFilters] = useState<string[]>(() => {
-    const saved = localStorage.getItem('todo-active-filters');
-    if (saved) {
-        try {
-            const parsed = JSON.parse(saved);
-            if (Array.isArray(parsed)) {
-                return parsed;
-            }
-        } catch (e) {
-            return [];
-        }
-    }
-    return [];
-  });
+  const [sortOrder, setSortOrder] = useState<'asc' | null>(null);
+  const [activeFilters, setActiveFilters] = useState<string[]>([]);
   
   // Menu State
   const [isMenuOpen, setIsMenuOpen] = useState(false);
@@ -265,33 +238,52 @@ const App: React.FC = () => {
     }
   }, []);
 
+  const fetchSettings = useCallback(async () => {
+    try {
+        const { data, error } = await supabase
+            .from('settings')
+            .select('sort_order, active_filters')
+            .eq('id', 1)
+            .single();
+
+        if (error) throw error;
+        
+        if (data) {
+            setSortOrder(currentSortOrder =>
+                currentSortOrder !== data.sort_order ? data.sort_order : currentSortOrder
+            );
+            setActiveFilters(currentFilters =>
+                JSON.stringify(currentFilters) !== JSON.stringify(data.active_filters)
+                ? (data.active_filters || [])
+                : currentFilters
+            );
+        }
+    } catch (error) {
+        console.error("Failed to fetch settings from Supabase", error);
+    }
+  }, []);
+
   // Initial data fetch
   useEffect(() => {
     const initialFetch = async () => {
       setIsLoaded(false);
-      await fetchTasks();
+      await Promise.all([fetchTasks(), fetchSettings()]);
       setIsLoaded(true);
     };
     initialFetch();
-  }, [fetchTasks]);
+  }, [fetchTasks, fetchSettings]);
 
   // Polling to keep data in sync across devices
   useEffect(() => {
     const POLLING_INTERVAL = 1000; // 1 second
     const intervalId = setInterval(() => {
       fetchTasks();
+      fetchSettings();
     }, POLLING_INTERVAL);
   
     return () => clearInterval(intervalId);
-  }, [fetchTasks]);
+  }, [fetchTasks, fetchSettings]);
 
-  useEffect(() => {
-    localStorage.setItem('todo-sort-order', JSON.stringify(sortOrder));
-  }, [sortOrder]);
-
-  useEffect(() => {
-    localStorage.setItem('todo-active-filters', JSON.stringify(activeFilters));
-  }, [activeFilters]);
 
   useEffect(() => {
     if (editingTaskId === null) return;
@@ -390,13 +382,27 @@ const App: React.FC = () => {
       document.removeEventListener('mousedown', handleClickOutside);
     };
   }, [editingTaskId, handleSaveEdit]);
+  
+  const handleFilterChange = (newFilters: string[]) => {
+      setActiveFilters(newFilters);
+      supabase
+        .from('settings')
+        .upsert({ id: 1, active_filters: newFilters })
+        .then(({ error }) => {
+            if (error) console.error("Failed to sync filter settings:", error);
+        });
+  };
 
   const handleToggleAllFilters = () => {
-    if (areAllFiltersSelected) {
-      setActiveFilters([]);
-    } else {
-      setActiveFilters(uniqueAssignees);
-    }
+    const newFilters = areAllFiltersSelected ? [] : uniqueAssignees;
+    handleFilterChange(newFilters);
+  };
+  
+  const handleIndividualFilterToggle = (assignee: string) => {
+    const newFilters = activeFilters.includes(assignee)
+        ? activeFilters.filter(a => a !== assignee)
+        : [...activeFilters, assignee];
+    handleFilterChange(newFilters);
   };
 
   const handleClearCompletedTasks = async () => {
@@ -682,8 +688,17 @@ const App: React.FC = () => {
   };
   
   const handleSortClick = () => {
-    setSortOrder(prev => (prev === 'asc' ? null : 'asc'));
+    const newSortOrder = sortOrder === 'asc' ? null : 'asc';
+    setSortOrder(newSortOrder); // Optimistic local update
     setIsMenuOpen(false);
+    
+    // Push change to Supabase
+    supabase
+        .from('settings')
+        .upsert({ id: 1, sort_order: newSortOrder })
+        .then(({ error }) => {
+            if (error) console.error("Failed to sync sort setting:", error);
+        });
   };
 
   const completedTasks = tasks.filter(t => t.completed).length;
@@ -795,13 +810,7 @@ const App: React.FC = () => {
                                                     <input
                                                         type="checkbox"
                                                         checked={activeFilters.includes(assignee)}
-                                                        onChange={() => {
-                                                            setActiveFilters(prev => 
-                                                                prev.includes(assignee) 
-                                                                ? prev.filter(a => a !== assignee) 
-                                                                : [...prev, assignee]
-                                                            )
-                                                        }}
+                                                        onChange={() => handleIndividualFilterToggle(assignee)}
                                                         className="h-4 w-4 rounded border-gray-300 text-sky-600 focus:ring-sky-500 focus:ring-1 focus:ring-offset-0 mr-3"
                                                     />
                                                     <span>{assignee}</span>
