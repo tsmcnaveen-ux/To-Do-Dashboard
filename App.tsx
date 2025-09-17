@@ -927,7 +927,7 @@ const App: React.FC = () => {
 
           <div className="hidden md:flex items-center text-xs font-semibold text-slate-500 uppercase tracking-wider px-4 pt-4">
             <div className="flex-1 flex items-center">
-                <div className="w-5 h-5 flex-shrink-0" aria-hidden="true"></div>
+                <div className="w-4 h-4 flex-shrink-0" aria-hidden="true"></div>
                 <div className="ml-4 flex-1">Task</div>
             </div>
             <div className="flex items-center flex-shrink-0 text-center">
@@ -942,7 +942,7 @@ const App: React.FC = () => {
             {!isMobileCreatorVisible && (
               <div className="hidden md:block bg-slate-50 px-4 py-3 rounded-lg">
                   <div className="flex items-center">
-                      <div className="w-5 h-5 flex-shrink-0" aria-hidden="true"></div>
+                      <div className="w-4 h-4 flex-shrink-0" aria-hidden="true"></div>
                       <div className="ml-4 flex-1">
                           <input
                               ref={creatorTextRef}
@@ -1082,7 +1082,7 @@ const App: React.FC = () => {
                             type="checkbox"
                             checked={task.completed}
                             onChange={() => handleToggleComplete(task.id)}
-                            className="h-5 w-5 rounded border-gray-300 text-sky-600 focus:ring-sky-500 cursor-pointer bg-white flex-shrink-0"
+                            className="h-4 w-4 rounded border-gray-300 text-sky-600 focus:ring-sky-500 cursor-pointer bg-white flex-shrink-0"
                           />
                           <div className="ml-4 flex-1 min-w-0">
                               <input
@@ -1155,7 +1155,7 @@ const App: React.FC = () => {
                             type="checkbox"
                             checked={task.completed}
                             onChange={() => handleToggleComplete(task.id)}
-                            className="h-5 w-5 rounded border-gray-300 text-sky-600 focus:ring-sky-500 cursor-pointer bg-white flex-shrink-0"
+                            className="h-4 w-4 rounded border-gray-300 text-sky-600 focus:ring-sky-500 cursor-pointer bg-white flex-shrink-0"
                           />
                           <div className="ml-4 flex-1 min-w-0" onClick={() => handleStartEditing(task, 'text')}>
                             <p className={`text-base md:text-sm text-slate-800 truncate ${task.completed ? 'line-through text-slate-500' : ''}`}>
