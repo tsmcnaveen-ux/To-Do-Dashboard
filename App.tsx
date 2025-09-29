@@ -77,6 +77,44 @@ const ArrowsUpDownIcon: FC<{ className?: string }> = ({ className }) => (
     </svg>
 );
 
+const SearchIcon: FC<{ className?: string }> = ({ className }) => (
+    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className={className || "w-5 h-5"}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.607 10.607Z" />
+    </svg>
+);
+
+const XIcon: FC<{ className?: string }> = ({ className }) => (
+    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className={className || "w-5 h-5"}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M6 18 18 6M6 6l12 12" />
+    </svg>
+);
+
+const timeFormatOptions: Intl.DateTimeFormatOptions = {
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+};
+
+const Highlight: FC<{ text?: string | null; query: string }> = ({ text, query }) => {
+    if (!query || !text) {
+        return <>{text}</>;
+    }
+    const parts = text.split(new RegExp(`(${query})`, 'gi'));
+    return (
+        <>
+            {parts.map((part, index) =>
+                part.toLowerCase() === query.toLowerCase() ? (
+                    <mark key={index} className="bg-sky-200/70 text-sky-800 rounded px-0.5">
+                        {part}
+                    </mark>
+                ) : (
+                    part
+                )
+            )}
+        </>
+    );
+};
+
 
 const App: React.FC = () => {
   const [tasks, setTasks] = useState<Task[]>([]);
@@ -88,9 +126,11 @@ const App: React.FC = () => {
   const [isLoaded, setIsLoaded] = useState<boolean>(false);
   const [isMobileCreatorVisible, setIsMobileCreatorVisible] = useState<boolean>(false);
   
-  // Sorting and Filtering State
+  // Sorting, Filtering, and Searching State
   const [sortOrder, setSortOrder] = useState<'asc' | null>(null);
   const [activeFilters, setActiveFilters] = useState<string[]>([]);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [isSearchVisible, setIsSearchVisible] = useState(false);
   const [isSavingSettings, setIsSavingSettings] = useState(false);
   
   // Menu State
@@ -99,6 +139,7 @@ const App: React.FC = () => {
   const menuRef = useRef<HTMLDivElement>(null);
   const allFiltersCheckboxRef = useRef<HTMLInputElement>(null);
   const editingTaskRef = useRef<HTMLDivElement>(null);
+  const searchInputRef = useRef<HTMLInputElement>(null);
 
   const [pendingChanges, setPendingChanges] = useState<PendingChange[]>([]);
   const saveTasksTimeoutRef = useRef<number | null>(null);
@@ -240,13 +281,6 @@ const App: React.FC = () => {
     }, 500);
   }, [saveSettings]);
 
-
-  const timeFormatOptions: Intl.DateTimeFormatOptions = {
-    hour: '2-digit',
-    minute: '2-digit',
-    hour12: false,
-  };
-
   const uniqueAssignees = useMemo(() => {
     const assignees = tasks.map(t => t.whom?.trim()).filter(Boolean) as string[];
     return [...new Set(assignees)];
@@ -301,17 +335,7 @@ const App: React.FC = () => {
     return tasksCopy;
   }, []);
 
-  const filteredAndSortedTasks = useMemo(() => {
-    let tasksCopy = [...tasks];
-
-    if (activeFilters.length > 0) {
-      tasksCopy = tasksCopy.filter(task => task.whom && activeFilters.includes(task.whom));
-    }
-    
-    return sortTasks(tasksCopy, sortOrder);
-  }, [tasks, sortOrder, activeFilters, sortTasks]);
-
-  const formatDateForDisplay = (dateString: string) => {
+  const formatDateForDisplay = useCallback((dateString: string) => {
     if (!dateString) return '';
     const date = new Date(dateString);
     const userTimezoneOffset = date.getTimezoneOffset() * 60000;
@@ -322,9 +346,9 @@ const App: React.FC = () => {
         day: 'numeric',
         year: 'numeric',
     });
-  };
+  }, []);
 
-  const formatTimeForDisplay = (timeString: string) => {
+  const formatTimeForDisplay = useCallback((timeString: string) => {
     if (!timeString) return '';
     const [hours, minutes] = timeString.split(':');
     if (hours === undefined || minutes === undefined) return '';
@@ -332,7 +356,27 @@ const App: React.FC = () => {
     date.setHours(parseInt(hours, 10));
     date.setMinutes(parseInt(minutes, 10));
     return date.toLocaleTimeString('en-US', timeFormatOptions);
-  };
+  }, []);
+
+  const filteredAndSortedTasks = useMemo(() => {
+    let tasksCopy = [...tasks];
+
+    if (searchQuery.trim() !== '') {
+      const lowercasedQuery = searchQuery.toLowerCase();
+      tasksCopy = tasksCopy.filter(task =>
+        task.text.toLowerCase().includes(lowercasedQuery) ||
+        (task.whom && task.whom.toLowerCase().includes(lowercasedQuery)) ||
+        (task.date && formatDateForDisplay(task.date).toLowerCase().includes(lowercasedQuery)) ||
+        (task.time && formatTimeForDisplay(task.time).toLowerCase().includes(lowercasedQuery))
+      );
+    }
+
+    if (activeFilters.length > 0) {
+      tasksCopy = tasksCopy.filter(task => task.whom && activeFilters.includes(task.whom));
+    }
+    
+    return sortTasks(tasksCopy, sortOrder);
+  }, [tasks, sortOrder, activeFilters, sortTasks, searchQuery, formatDateForDisplay, formatTimeForDisplay]);
   
   const fetchSettings = useCallback(async () => {
     if (isSavingSettings) return;
@@ -378,6 +422,11 @@ const App: React.FC = () => {
     return () => clearInterval(intervalId);
   }, [fetchTasks, fetchSettings]);
 
+  useEffect(() => {
+    if (isSearchVisible) {
+      searchInputRef.current?.focus();
+    }
+  }, [isSearchVisible]);
 
   useEffect(() => {
     if (editingTaskId === null) return;
@@ -788,7 +837,32 @@ const App: React.FC = () => {
   const completedTasks = tasks.filter(t => t.completed).length;
   const totalTasks = tasks.length;
   const progress = totalTasks > 0 ? (completedTasks / totalTasks) * 100 : 0;
-  const isFilterOrSortActive = activeFilters.length > 0 || sortOrder !== null;
+  const isFilterOrSortActive = activeFilters.length > 0 || sortOrder !== null || searchQuery.trim() !== '';
+
+  const noTasksMessage = () => {
+    if (!isLoaded) {
+        return {
+            title: "Loading Tasks...",
+            message: "Please wait a moment."
+        };
+    }
+    if (searchQuery.trim() !== '') {
+        return {
+            title: "No Results Found",
+            message: "Try adjusting your search or filter to find what you're looking for."
+        };
+    }
+    if (activeFilters.length > 0) {
+        return {
+            title: "No Matching Tasks",
+            message: "No tasks match the current filter."
+        };
+    }
+    return {
+        title: "All tasks accounted for!",
+        message: "Add a new task above to get started."
+    };
+  };
 
   return (
     <div className="bg-slate-100 min-h-screen font-sans text-gray-800 flex justify-center p-4" style={{ colorScheme: 'light' }}>
@@ -799,116 +873,152 @@ const App: React.FC = () => {
               <h1 className="text-2xl md:text-3xl font-bold text-slate-800">To-Do Dashboard</h1>
               <p className="text-slate-500 mt-1 text-base">Hello there, here are your tasks for today.</p>
             </div>
-            <div className="relative inline-block text-left">
-                <button
-                    type="button"
-                    onClick={() => {
-                      setIsMenuOpen(prev => !prev);
-                      if (isMenuOpen) setMenuView('main');
-                    }}
-                    className={`relative p-2 rounded-full ${isFilterOrSortActive ? 'text-sky-600 bg-sky-100' : 'text-slate-500'} hover:bg-slate-200 hover:text-slate-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-sky-500`}
-                    aria-haspopup="true"
-                    aria-expanded={isMenuOpen}
-                >
-                    <span className="sr-only">Open options</span>
-                    <DotsVerticalIcon className="w-5 h-5" />
-                     {isFilterOrSortActive && (
-                        <span className="absolute top-1.5 right-1.5 block h-2 w-2 rounded-full bg-sky-500 ring-2 ring-white" />
-                    )}
-                </button>
-                {isMenuOpen && (
-                    <div
-                        ref={menuRef}
-                        className={`absolute right-0 mt-2 ${menuView === 'main' ? 'w-auto' : 'w-56 md:w-64'} origin-top-right bg-white rounded-md shadow-lg ring-1 ring-black ring-opacity-5 focus:outline-none z-20`}
-                        role="menu"
-                        aria-orientation="vertical"
-                        aria-labelledby="menu-button"
-                    >
-                        {menuView === 'main' && (
-                            <div className="p-1 flex items-center space-x-1">
-                                <button
-                                    onClick={() => setMenuView('filter')}
-                                    className="relative p-2 rounded-md text-slate-500 hover:bg-slate-100 hover:text-slate-700 transition-colors focus:outline-none focus:ring-2 focus:ring-sky-500"
-                                    aria-label="Filter tasks"
-                                    title="Filter"
-                                >
-                                    <FunnelIcon className="w-5 h-5" />
-                                    {activeFilters.length > 0 && (
-                                        <span className="absolute top-1.5 right-1.5 block h-2 w-2 rounded-full bg-sky-500 ring-2 ring-white" />
-                                    )}
-                                </button>
-                                <div className="h-5 w-px bg-slate-200" aria-hidden="true"></div>
-                                <button
-                                    onClick={handleSortClick}
-                                    className="relative p-2 rounded-md text-slate-500 hover:bg-slate-100 hover:text-slate-700 transition-colors focus:outline-none focus:ring-2 focus:ring-sky-500"
-                                    aria-label="Sort tasks"
-                                    title={
-                                        sortOrder === 'asc' ? "Clear sorting" : "Sort by oldest date and time"
-                                    }
-                                >
-                                    {sortOrder === 'asc' ? <SortAscendingIcon className="w-5 h-5" /> :
-                                     <ArrowsUpDownIcon className="w-5 h-5" />
-                                    }
-                                    {sortOrder !== null && (
-                                        <span className="absolute top-1.5 right-1.5 block h-2 w-2 rounded-full bg-sky-500 ring-2 ring-white" />
-                                    )}
-                                </button>
-                                {completedTasks > 0 && (
-                                    <>
-                                        <div className="h-5 w-px bg-slate-200" aria-hidden="true"></div>
-                                        <button
-                                            onClick={handleClearCompletedTasks}
-                                            className="p-2 rounded-md text-slate-500 hover:bg-slate-100 hover:text-slate-700 transition-colors focus:outline-none focus:ring-2 focus:ring-sky-500"
-                                            aria-label="Clear completed tasks"
-                                            title="Clear completed tasks"
-                                        >
-                                            <SparklesIcon className="w-5 h-5" />
-                                        </button>
-                                    </>
-                                )}
-                            </div>
-                        )}
-                        {menuView === 'filter' && (
-                             <div className="py-1">
-                                <button onClick={() => setMenuView('main')} className="w-full text-left flex items-center px-4 py-2 text-sm text-slate-700 hover:bg-slate-100 transition-colors font-semibold">
-                                    <ChevronLeftIcon className="w-4 h-4 mr-2" />
-                                    Filter by Assignee
-                                </button>
-                                <div className="border-t border-slate-100 my-1"></div>
-                                <div className="max-h-60 overflow-y-auto px-2">
-                                    {uniqueAssignees.length > 0 ? (
-                                        <>
-                                            <label className="w-full text-left flex items-center px-2 py-2 text-sm text-slate-700 hover:bg-slate-100 transition-colors cursor-pointer rounded-md">
-                                                <input
-                                                    ref={allFiltersCheckboxRef}
-                                                    type="checkbox"
-                                                    checked={areAllFiltersSelected}
-                                                    onChange={handleToggleAllFilters}
-                                                    className="h-4 w-4 rounded border-gray-300 text-sky-600 focus:ring-sky-500 focus:ring-1 focus:ring-offset-0 mr-3"
-                                                />
-                                                <span>All</span>
-                                            </label>
-                                            <div className="border-t border-slate-200 my-1 mx-2"></div>
-                                            {uniqueAssignees.map(assignee => (
-                                                <label key={assignee} className="w-full text-left flex items-center px-2 py-2 text-sm text-slate-700 hover:bg-slate-100 transition-colors cursor-pointer rounded-md">
-                                                    <input
-                                                        type="checkbox"
-                                                        checked={activeFilters.includes(assignee)}
-                                                        onChange={() => handleIndividualFilterToggle(assignee)}
-                                                        className="h-4 w-4 rounded border-gray-300 text-sky-600 focus:ring-sky-500 focus:ring-1 focus:ring-offset-0 mr-3"
-                                                    />
-                                                    <span>{assignee}</span>
-                                                </label>
-                                            ))}
-                                        </>
-                                    ) : (
-                                        <div className="px-4 py-2 text-sm text-slate-500">No assignees found</div>
-                                    )}
-                                </div>
-                            </div>
+            <div className="flex items-center space-x-1">
+                {isSearchVisible ? (
+                    <div className="relative flex items-center">
+                        <input
+                            ref={searchInputRef}
+                            type="text"
+                            value={searchQuery}
+                            onChange={(e) => setSearchQuery(e.target.value)}
+                            onBlur={() => { if (!searchQuery) setIsSearchVisible(false); }}
+                            onKeyDown={(e) => {
+                                if (e.key === 'Escape') {
+                                    setSearchQuery('');
+                                    setIsSearchVisible(false);
+                                    e.currentTarget.blur();
+                                }
+                            }}
+                            placeholder="Search..."
+                            className="w-40 md:w-56 text-sm text-slate-700 py-1.5 px-3 border border-slate-300 rounded-full focus:ring-1 focus:ring-sky-500 focus:border-sky-500 focus:outline-none placeholder-slate-400"
+                        />
+                         {searchQuery && (
+                            <button onClick={() => { setSearchQuery(''); searchInputRef.current?.focus(); }} className="absolute right-2 text-slate-400 hover:text-slate-600 p-1">
+                                <XIcon className="w-4 h-4" />
+                            </button>
                         )}
                     </div>
+                ) : (
+                    <button
+                        onClick={() => setIsSearchVisible(true)}
+                        className="p-2 rounded-full text-slate-500 hover:bg-slate-200 hover:text-slate-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-sky-500"
+                        aria-label="Search tasks"
+                    >
+                        <SearchIcon className="w-5 h-5" />
+                    </button>
                 )}
+
+                <div className="relative inline-block text-left">
+                    <button
+                        type="button"
+                        onClick={() => {
+                          setIsMenuOpen(prev => !prev);
+                          if (isMenuOpen) setMenuView('main');
+                        }}
+                        className={`relative p-2 rounded-full ${isFilterOrSortActive ? 'text-sky-600 bg-sky-100' : 'text-slate-500'} hover:bg-slate-200 hover:text-slate-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-sky-500`}
+                        aria-haspopup="true"
+                        aria-expanded={isMenuOpen}
+                    >
+                        <span className="sr-only">Open options</span>
+                        <DotsVerticalIcon className="w-5 h-5" />
+                         {isFilterOrSortActive && (
+                            <span className="absolute top-1.5 right-1.5 block h-2 w-2 rounded-full bg-sky-500 ring-2 ring-white" />
+                        )}
+                    </button>
+                    {isMenuOpen && (
+                        <div
+                            ref={menuRef}
+                            className={`absolute right-0 mt-2 ${menuView === 'main' ? 'w-auto' : 'w-56 md:w-64'} origin-top-right bg-white rounded-md shadow-lg ring-1 ring-black ring-opacity-5 focus:outline-none z-20`}
+                            role="menu"
+                            aria-orientation="vertical"
+                            aria-labelledby="menu-button"
+                        >
+                            {menuView === 'main' && (
+                                <div className="p-1 flex items-center space-x-1">
+                                    <button
+                                        onClick={() => setMenuView('filter')}
+                                        className="relative p-2 rounded-md text-slate-500 hover:bg-slate-100 hover:text-slate-700 transition-colors focus:outline-none focus:ring-2 focus:ring-sky-500"
+                                        aria-label="Filter tasks"
+                                        title="Filter"
+                                    >
+                                        <FunnelIcon className="w-5 h-5" />
+                                        {activeFilters.length > 0 && (
+                                            <span className="absolute top-1.5 right-1.5 block h-2 w-2 rounded-full bg-sky-500 ring-2 ring-white" />
+                                        )}
+                                    </button>
+                                    <div className="h-5 w-px bg-slate-200" aria-hidden="true"></div>
+                                    <button
+                                        onClick={handleSortClick}
+                                        className="relative p-2 rounded-md text-slate-500 hover:bg-slate-100 hover:text-slate-700 transition-colors focus:outline-none focus:ring-2 focus:ring-sky-500"
+                                        aria-label="Sort tasks"
+                                        title={
+                                            sortOrder === 'asc' ? "Clear sorting" : "Sort by oldest date and time"
+                                        }
+                                    >
+                                        {sortOrder === 'asc' ? <SortAscendingIcon className="w-5 h-5" /> :
+                                         <ArrowsUpDownIcon className="w-5 h-5" />
+                                        }
+                                        {sortOrder !== null && (
+                                            <span className="absolute top-1.5 right-1.5 block h-2 w-2 rounded-full bg-sky-500 ring-2 ring-white" />
+                                        )}
+                                    </button>
+                                    {completedTasks > 0 && (
+                                        <>
+                                            <div className="h-5 w-px bg-slate-200" aria-hidden="true"></div>
+                                            <button
+                                                onClick={handleClearCompletedTasks}
+                                                className="p-2 rounded-md text-slate-500 hover:bg-slate-100 hover:text-slate-700 transition-colors focus:outline-none focus:ring-2 focus:ring-sky-500"
+                                                aria-label="Clear completed tasks"
+                                                title="Clear completed tasks"
+                                            >
+                                                <SparklesIcon className="w-5 h-5" />
+                                            </button>
+                                        </>
+                                    )}
+                                </div>
+                            )}
+                            {menuView === 'filter' && (
+                                 <div className="py-1">
+                                    <button onClick={() => setMenuView('main')} className="w-full text-left flex items-center px-4 py-2 text-sm text-slate-700 hover:bg-slate-100 transition-colors font-semibold">
+                                        <ChevronLeftIcon className="w-4 h-4 mr-2" />
+                                        Filter by Assignee
+                                    </button>
+                                    <div className="border-t border-slate-100 my-1"></div>
+                                    <div className="max-h-60 overflow-y-auto px-2">
+                                        {uniqueAssignees.length > 0 ? (
+                                            <>
+                                                <label className="w-full text-left flex items-center px-2 py-2 text-sm text-slate-700 hover:bg-slate-100 transition-colors cursor-pointer rounded-md">
+                                                    <input
+                                                        ref={allFiltersCheckboxRef}
+                                                        type="checkbox"
+                                                        checked={areAllFiltersSelected}
+                                                        onChange={handleToggleAllFilters}
+                                                        className="h-4 w-4 rounded border-gray-300 text-sky-600 focus:ring-sky-500 focus:ring-1 focus:ring-offset-0 mr-3"
+                                                    />
+                                                    <span>All</span>
+                                                </label>
+                                                <div className="border-t border-slate-200 my-1 mx-2"></div>
+                                                {uniqueAssignees.map(assignee => (
+                                                    <label key={assignee} className="w-full text-left flex items-center px-2 py-2 text-sm text-slate-700 hover:bg-slate-100 transition-colors cursor-pointer rounded-md">
+                                                        <input
+                                                            type="checkbox"
+                                                            checked={activeFilters.includes(assignee)}
+                                                            onChange={() => handleIndividualFilterToggle(assignee)}
+                                                            className="h-4 w-4 rounded border-gray-300 text-sky-600 focus:ring-sky-500 focus:ring-1 focus:ring-offset-0 mr-3"
+                                                        />
+                                                        <span>{assignee}</span>
+                                                    </label>
+                                                ))}
+                                            </>
+                                        ) : (
+                                            <div className="px-4 py-2 text-sm text-slate-500">No assignees found</div>
+                                        )}
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+                    )}
+                </div>
             </div>
           </header>
 
@@ -1159,28 +1269,28 @@ const App: React.FC = () => {
                           />
                           <div className="ml-4 flex-1 min-w-0" onClick={() => handleStartEditing(task, 'text')}>
                             <p className={`text-base md:text-sm text-slate-800 truncate ${task.completed ? 'line-through text-slate-500' : ''}`}>
-                              {task.text}
+                               <Highlight text={task.text} query={searchQuery} />
                             </p>
                             {(task.date || task.time || task.whom) && (
                                 <div className="md:hidden text-sm text-slate-500 mt-1 flex items-center flex-wrap">
-                                    {task.date && <span>{formatDateForDisplay(task.date)}</span>}
+                                    {task.date && <span><Highlight text={formatDateForDisplay(task.date)} query={searchQuery} /></span>}
                                     {task.date && task.time && <span className="mx-1.5">&middot;</span>}
-                                    {task.time && <span>{formatTimeForDisplay(task.time)}</span>}
+                                    {task.time && <span><Highlight text={formatTimeForDisplay(task.time)} query={searchQuery} /></span>}
                                     {(task.date || task.time) && task.whom && <span className="mx-1.5">&middot;</span>}
-                                    {task.whom && <span className="font-medium">{task.whom}</span>}
+                                    {task.whom && <span className="font-medium"><Highlight text={task.whom} query={searchQuery} /></span>}
                                 </div>
                             )}
                           </div>
                         </div>
                         <div className="hidden md:flex items-center flex-shrink-0 text-center text-sm">
                           <div className="w-28 text-slate-500 cursor-pointer" onClick={() => handleStartEditing(task, 'date')}>
-                            {formatDateForDisplay(task.date)}
+                            <Highlight text={formatDateForDisplay(task.date)} query={searchQuery} />
                           </div>
                           <div className="w-24 text-slate-500 cursor-pointer" onClick={() => handleStartEditing(task, 'time')}>
-                            {formatTimeForDisplay(task.time)}
+                            <Highlight text={formatTimeForDisplay(task.time)} query={searchQuery} />
                           </div>
                           <div className="w-28 text-slate-500 truncate cursor-pointer" onClick={() => handleStartEditing(task, 'whom')}>
-                            {task.whom}
+                            <Highlight text={task.whom} query={searchQuery} />
                           </div>
                           <div className="w-20 flex items-center justify-center">
                             <button
@@ -1205,9 +1315,9 @@ const App: React.FC = () => {
                             <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 6.75h7.5M8.25 12h7.5m-7.5 5.25h7.5m3-15H5.25c-1.12 0-2.06.914-2.06 2.06v11.88c0 1.146.94 2.06 2.06 2.06h11.88c1.12 0 2.06-.914 2.06-2.06V8.81c0-1.146-.94-2.06-2.06-2.06Z" />
                         </svg>
                     </div>
-                    <h3 className="mt-4 text-xl font-semibold text-slate-700">{isLoaded ? "All tasks accounted for!" : "Loading Tasks..."}</h3>
+                    <h3 className="mt-4 text-xl font-semibold text-slate-700">{noTasksMessage().title}</h3>
                     <p className="mt-2 text-base text-slate-500">
-                        {isLoaded ? "Add a new task above to get started." : "Please wait a moment."}
+                        {noTasksMessage().message}
                     </p>
                 </div>
             )}
