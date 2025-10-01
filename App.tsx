@@ -323,6 +323,9 @@ const App: React.FC = () => {
   const allFiltersCheckboxRef = useRef<HTMLInputElement>(null);
   const editingTaskRef = useRef<HTMLDivElement>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
+  
+  // Realtime channel reference
+  const channelRef = useRef<RealtimeChannel | null>(null);
 
   const getDefaultDate = () => {
     const date = new Date();
@@ -375,40 +378,49 @@ const App: React.FC = () => {
 
     initialFetch();
 
-    // Set up realtime subscriptions
-    const tasksChannel = supabase.channel('realtime-tasks')
-      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'tasks' }, (payload) => {
-        setTasks(currentTasks => {
-          if (currentTasks.some(t => t.id === payload.new.id)) {
-            return currentTasks; // Already exists, probably from an optimistic update
-          }
-          return [payload.new as Task, ...currentTasks];
-        });
-      })
-      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'tasks' }, (payload) => {
-        setTasks(currentTasks => 
-          currentTasks.map(task => task.id === payload.new.id ? (payload.new as Task) : task)
-        );
-      })
-      .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'tasks' }, (payload) => {
-        setTasks(currentTasks => currentTasks.filter(task => task.id !== payload.old.id));
-      })
-      .subscribe();
+    // Set up realtime subscriptions using Broadcast to avoid self-echo
+    const channel = supabase.channel('dashboard-broadcast', {
+      config: {
+        broadcast: {
+          self: false, // Prevents client from receiving its own broadcasts
+        },
+      },
+    });
+    channelRef.current = channel;
 
-    const settingsChannel = supabase.channel('realtime-settings')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'settings', filter: 'id=eq.1' }, (payload) => {
-          const newSettings = payload.new as { sort_order: 'asc' | null, active_filters: string[] };
-          if (newSettings) {
-            setSortOrder(current => current !== newSettings.sort_order ? newSettings.sort_order : current);
-            setActiveFilters(current => JSON.stringify(current) !== JSON.stringify(newSettings.active_filters) ? (newSettings.active_filters || []) : current);
-          }
+    channel
+      .on('broadcast', { event: 'task-insert' }, ({ payload }) => {
+          setTasks(currentTasks => [payload as Task, ...currentTasks]);
       })
-      .subscribe();
+      .on('broadcast', { event: 'task-update' }, ({ payload }) => {
+          setTasks(currentTasks =>
+              currentTasks.map(task => task.id === (payload as Task).id ? (payload as Task) : task)
+          );
+      })
+      .on('broadcast', { event: 'task-delete' }, ({ payload }) => {
+          setTasks(currentTasks => currentTasks.filter(task => task.id !== (payload as {id: number}).id));
+      })
+      .on('broadcast', { event: 'tasks-delete-multiple' }, ({ payload }) => {
+          const { ids } = payload as { ids: number[] };
+          setTasks(currentTasks => currentTasks.filter(task => !ids.includes(task.id)));
+      })
+      .on('broadcast', { event: 'settings-update' }, ({ payload }) => {
+          const newSettings = payload as { sort_order: 'asc' | null, active_filters: string[] };
+          setSortOrder(current => current !== newSettings.sort_order ? newSettings.sort_order : current);
+          setActiveFilters(current => JSON.stringify(current) !== JSON.stringify(newSettings.active_filters) ? (newSettings.active_filters || []) : current);
+      })
+      .subscribe((status) => {
+          if (status === 'SUBSCRIBED') {
+              console.log('Realtime broadcast channel connected.');
+          }
+      });
       
     // Cleanup function to remove subscriptions
     return () => {
-      supabase.removeChannel(tasksChannel);
-      supabase.removeChannel(settingsChannel);
+        if (channelRef.current) {
+            supabase.removeChannel(channelRef.current);
+            channelRef.current = null;
+        }
     };
   }, []);
 
@@ -592,13 +604,19 @@ const App: React.FC = () => {
     
     if (Object.keys(result.updates).length > 0) {
         // This is an update
-        supabase.from('tasks').update(result.updates).eq('id', result.id).then(({ error }) => {
+        supabase.from('tasks').update(result.updates).eq('id', result.id).select().single().then(({ data, error }) => {
             if (error) console.error("Update failed:", error.message);
+            else if (data && channelRef.current) {
+                channelRef.current.send({ type: 'broadcast', event: 'task-update', payload: data });
+            }
         });
     } else {
         // This is a delete because the text was cleared
         supabase.from('tasks').delete().eq('id', result.id).then(({ error }) => {
             if (error) console.error("Delete failed:", error.message);
+            else if (channelRef.current) {
+                channelRef.current.send({ type: 'broadcast', event: 'task-delete', payload: { id: result.id } });
+            }
         });
     }
     return result.updatedTasks;
@@ -625,10 +643,12 @@ const App: React.FC = () => {
   
   const handleFilterChange = async (newFilters: string[]) => {
       setActiveFilters(newFilters); // Optimistic update
-      const { error } = await supabase
-        .from('settings')
-        .upsert({ id: 1, active_filters: newFilters, sort_order: sortOrder });
+      const payload = { id: 1, active_filters: newFilters, sort_order: sortOrder };
+      const { error } = await supabase.from('settings').upsert(payload);
       if (error) console.error("Failed to sync filter settings:", error.message);
+      else if (channelRef.current) {
+          channelRef.current.send({ type: 'broadcast', event: 'settings-update', payload });
+      }
   };
 
   const handleToggleAllFilters = () => {
@@ -656,8 +676,8 @@ const App: React.FC = () => {
     const { error } = await supabase.from('tasks').delete().in('id', completedTaskIds);
     if (error) {
         console.error("Failed to clear completed tasks:", error.message);
-        // NOTE: In a real app, you might want to revert the optimistic update here.
-        // For simplicity, we'll assume success.
+    } else if (channelRef.current) {
+        channelRef.current.send({ type: 'broadcast', event: 'tasks-delete-multiple', payload: { ids: completedTaskIds } });
     }
   };
 
@@ -672,36 +692,27 @@ const App: React.FC = () => {
       whom: creatorWhom.trim() || null,
     };
 
-    // Use a temporary ID for the optimistic update
     const tempId = -Date.now();
-    const optimisticTask: Task = {
-        ...newTaskData,
-        id: tempId,
-        created_at: new Date().toISOString()
-    };
+    const optimisticTask: Task = { ...newTaskData, id: tempId, created_at: new Date().toISOString() };
     setTasks(currentTasks => [optimisticTask, ...currentTasks]);
 
-    // Clear inputs immediately
     setCreatorText('');
     setCreatorDate(getDefaultDate());
     setCreatorTime('');
     setCreatorWhom('');
-    if (isMobileCreatorVisible) {
-        setIsMobileCreatorVisible(false);
-    } else {
-        creatorTextRef.current?.focus();
-    }
+    if (isMobileCreatorVisible) setIsMobileCreatorVisible(false);
+    else creatorTextRef.current?.focus();
     
-    // Send to Supabase and update with real ID
     const { data, error } = await supabase.from('tasks').insert(newTaskData).select().single();
 
     if (error) {
         console.error("Failed to add task:", error.message);
-        // Revert optimistic update on failure
         setTasks(currentTasks => currentTasks.filter(t => t.id !== tempId));
     } else if (data) {
-        // Replace temporary task with the real one from DB
         setTasks(currentTasks => currentTasks.map(t => t.id === tempId ? data : t));
+        if (channelRef.current) {
+            channelRef.current.send({ type: 'broadcast', event: 'task-insert', payload: data });
+        }
     }
   };
   
@@ -768,23 +779,27 @@ const App: React.FC = () => {
     
     const newCompletedStatus = !taskToUpdate.completed;
     
-    // Optimistic UI update
     setTasks(currentTasks =>
         currentTasks.map(task =>
             task.id === id ? { ...task, completed: newCompletedStatus } : task
         )
     );
     
-    // Send to DB
-    supabase.from('tasks').update({ completed: newCompletedStatus }).eq('id', id).then(({ error }) => {
+    supabase.from('tasks').update({ completed: newCompletedStatus }).eq('id', id).select().single().then(({ data, error }) => {
         if (error) console.error("Toggle complete failed:", error.message);
+        else if (data && channelRef.current) {
+            channelRef.current.send({ type: 'broadcast', event: 'task-update', payload: data });
+        }
     });
   }, [tasks]);
 
   const handleDeleteTask = useCallback((id: number) => {
-    setTasks(currentTasks => currentTasks.filter(task => task.id !== id)); // Optimistic UI update
+    setTasks(currentTasks => currentTasks.filter(task => task.id !== id));
     supabase.from('tasks').delete().eq('id', id).then(({ error }) => {
         if (error) console.error("Delete task failed:", error.message);
+        else if (channelRef.current) {
+            channelRef.current.send({ type: 'broadcast', event: 'task-delete', payload: { id } });
+        }
     });
   }, []);
 
@@ -894,10 +909,12 @@ const App: React.FC = () => {
     const newSortOrder = sortOrder === 'asc' ? null : 'asc';
     setSortOrder(newSortOrder); // Optimistic Update
     setIsMenuOpen(false);
-    const { error } = await supabase
-      .from('settings')
-      .upsert({ id: 1, sort_order: newSortOrder, active_filters: activeFilters });
+    const payload = { id: 1, sort_order: newSortOrder, active_filters: activeFilters };
+    const { error } = await supabase.from('settings').upsert(payload);
     if (error) console.error("Failed to sync sort settings:", error.message);
+    else if (channelRef.current) {
+        channelRef.current.send({ type: 'broadcast', event: 'settings-update', payload });
+    }
   };
 
   const completedTasksCount = tasks.filter(t => t.completed).length;
