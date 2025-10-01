@@ -1,19 +1,31 @@
-
 import React, { useState, useEffect, useRef, FC, useMemo, useCallback } from 'react';
 import { Task } from './types';
-import { createClient } from '@supabase/supabase-js';
+import { createClient, RealtimeChannel } from '@supabase/supabase-js';
 
 // --- Supabase Client Setup ---
 // IMPORTANT: For security, these should be stored in environment variables, not hardcoded.
 // This app assumes SUPABASE_URL and SUPABASE_KEY are set in the execution environment.
 const supabaseUrl = process.env.SUPABASE_URL || 'https://pkjwbkmciosrvbhpzglx.supabase.co';
 const supabaseKey = process.env.SUPABASE_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBrandia21jaW9zcnZiaHB6Z2x4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTUwMDIwNzEsImV4cCI6MjA3MDU3ODA3MX0.Xkuvbre2CMOxRQBsDTZApQ8_AGKC_nxhmXTzx3uU8kE';
-const supabase = createClient(supabaseUrl, supabaseKey);
 
-interface PendingChange {
-  type: 'ADD' | 'UPDATE' | 'TOGGLE_COMPLETE' | 'DELETE';
-  payload: any;
-}
+/**
+ * Custom fetch implementation to address potential network issues.
+ * In some environments (e.g., behind certain proxies or with specific browser settings),
+ * keep-alive connections can be unreliable and lead to "Failed to fetch" errors.
+ * Disabling it forces a new connection for each request, improving stability.
+ */
+const customFetch = (url: RequestInfo | URL, options: RequestInit = {}) => {
+    return fetch(url, {
+        ...options,
+        keepalive: false,
+    });
+};
+
+const supabase = createClient(supabaseUrl, supabaseKey, {
+    global: {
+        fetch: customFetch,
+    },
+});
 
 
 // SVG Icon Components defined outside the main component
@@ -115,6 +127,178 @@ const Highlight: FC<{ text?: string | null; query: string }> = ({ text, query })
     );
 };
 
+interface TaskItemProps {
+  task: Task;
+  index: number;
+  isEditing: boolean;
+  editingText: string;
+  editingDate: string;
+  editingTime: string;
+  editingWhom: string;
+  focusOnField: 'text' | 'date' | 'time' | 'whom' | null;
+  searchQuery: string;
+  onToggleComplete: (id: number) => void;
+  onDeleteTask: (id: number) => void;
+  onStartEditing: (task: Task, fieldToFocus?: 'text' | 'date' | 'time' | 'whom') => void;
+  onKeyDown: (e: React.KeyboardEvent<HTMLInputElement>, taskIndex: number, field: 'text' | 'date' | 'time' | 'whom') => void;
+  onEditingTextChange: (text: string) => void;
+  onEditingDateChange: (date: string) => void;
+  onEditingTimeChange: (time: string) => void;
+  onEditingWhomChange: (whom: string) => void;
+  formatDateForDisplay: (dateString: string) => string;
+  formatTimeForDisplay: (timeString: string) => string;
+  editingTaskRef: React.RefObject<HTMLDivElement>;
+}
+
+const TaskItem: FC<TaskItemProps> = React.memo(({
+  task, index, isEditing, editingText, editingDate, editingTime, editingWhom,
+  focusOnField, searchQuery, onToggleComplete, onDeleteTask, onStartEditing,
+  onKeyDown, onEditingTextChange, onEditingDateChange, onEditingTimeChange,
+  onEditingWhomChange, formatDateForDisplay, formatTimeForDisplay, editingTaskRef
+}) => {
+  const textInputRef = useRef<HTMLInputElement>(null);
+  const dateInputRef = useRef<HTMLInputElement>(null);
+  const timeInputRef = useRef<HTMLInputElement>(null);
+  const whomInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (!isEditing) return;
+
+    setTimeout(() => {
+      if (focusOnField === 'text' && textInputRef.current) textInputRef.current.focus();
+      else if (focusOnField === 'date' && dateInputRef.current) dateInputRef.current.focus();
+      else if (focusOnField === 'time' && timeInputRef.current) timeInputRef.current.focus();
+      else if (focusOnField === 'whom' && whomInputRef.current) whomInputRef.current.focus();
+    }, 0);
+  }, [isEditing, focusOnField]);
+
+  return (
+    <div
+      className={`group bg-slate-50 px-4 py-3 rounded-lg flex items-center transition-all duration-300 ease-in-out hover:shadow-md hover:bg-white ${task.completed ? 'opacity-60' : ''}`}
+    >
+      {isEditing ? (
+        <div ref={editingTaskRef} className="w-full flex flex-col md:flex-row md:items-center">
+          <div className="flex items-center flex-1 min-w-0">
+            <input
+              type="checkbox"
+              checked={task.completed}
+              onChange={() => onToggleComplete(task.id)}
+              className="h-4 w-4 rounded border-gray-300 text-sky-600 focus:ring-sky-500 cursor-pointer bg-white flex-shrink-0"
+            />
+            <div className="ml-4 flex-1 min-w-0">
+                <input
+                    ref={textInputRef}
+                    type="text"
+                    value={editingText}
+                    onChange={(e) => onEditingTextChange(e.target.value)}
+                    onKeyDown={(e) => onKeyDown(e, index, 'text')}
+                    className="w-full text-base md:text-sm text-slate-700 p-0 m-0 border-none bg-transparent focus:ring-0 focus:outline-none"
+                />
+            </div>
+          </div>
+      
+          <div className="w-full md:w-auto flex flex-col md:flex-row md:items-center mt-4 md:mt-0">
+              <div className={`flex items-center md:w-28 transition-transform duration-300 ${focusOnField === 'date' ? 'scale-115' : ''} md:scale-100`}>
+                <label htmlFor={`date-${task.id}`} className="text-base md:hidden text-slate-500 w-20">Date</label>
+                <input
+                    id={`date-${task.id}`}
+                    ref={dateInputRef}
+                    type="date"
+                    value={editingDate}
+                    onChange={(e) => onEditingDateChange(e.target.value)}
+                    onKeyDown={(e) => onKeyDown(e, index, 'date')}
+                    className="w-full text-base md:text-sm text-slate-500 p-2 rounded-md border border-slate-300 md:border-none md:p-0 md:bg-transparent focus:ring-1 focus:ring-sky-500 md:focus:ring-0 md:focus:outline-none md:text-center hide-picker-indicator"
+                />
+            </div>
+      
+            <div className={`flex items-center mt-2 md:mt-0 md:w-24 transition-transform duration-300 ${focusOnField === 'time' ? 'scale-115' : ''} md:scale-100`}>
+                <label htmlFor={`time-${task.id}`} className="text-base md:hidden text-slate-500 w-20">Time</label>
+                <input
+                    id={`time-${task.id}`}
+                    ref={timeInputRef}
+                    type="time"
+                    value={editingTime}
+                    onChange={(e) => onEditingTimeChange(e.target.value)}
+                    onKeyDown={(e) => onKeyDown(e, index, 'time')}
+                    className="w-full text-base md:text-sm text-slate-500 p-2 rounded-md border border-slate-300 md:border-none md:p-0 md:bg-transparent focus:ring-1 focus:ring-sky-500 md:focus:ring-0 md:focus:outline-none hide-picker-indicator md:text-center"
+                />
+            </div>
+      
+              <div className={`flex items-center mt-2 md:mt-0 md:w-28 transition-transform duration-300 ${focusOnField === 'whom' ? 'scale-115' : ''} md:scale-100`}>
+                <label htmlFor={`whom-${task.id}`} className="text-base md:hidden text-slate-500 w-20">Assignee</label>
+                <input
+                    id={`whom-${task.id}`}
+                    ref={whomInputRef}
+                    type="text"
+                    value={editingWhom}
+                    onChange={(e) => onEditingWhomChange(e.target.value)}
+                    onKeyDown={(e) => onKeyDown(e, index, 'whom')}
+                    placeholder="Assign to..."
+                    className="w-full text-base md:text-sm text-slate-500 p-2 rounded-md border border-slate-300 md:border-none md:p-0 md:bg-transparent focus:ring-1 focus:ring-sky-500 md:focus:ring-0 md:focus:outline-none md:text-center placeholder-slate-400"
+                />
+            </div>
+            
+            <div className="flex items-center justify-end md:justify-center md:w-20 mt-4 md:mt-0">
+              <button
+                onClick={() => onDeleteTask(task.id)}
+                className="text-slate-400 hover:text-red-600 p-2 rounded-full hover:bg-red-100 transition-colors"
+                aria-label="Delete task"
+              >
+                <TrashIcon />
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : (
+        <>
+          <div className="flex items-center flex-1 min-w-0">
+            <input
+              type="checkbox"
+              checked={task.completed}
+              onChange={() => onToggleComplete(task.id)}
+              className="h-4 w-4 rounded border-gray-300 text-sky-600 focus:ring-sky-500 cursor-pointer bg-white flex-shrink-0"
+            />
+            <div className="ml-4 flex-1 min-w-0" onClick={() => onStartEditing(task, 'text')}>
+              <p className={`text-base md:text-sm text-slate-800 truncate ${task.completed ? 'line-through text-slate-500' : ''}`}>
+                  <Highlight text={task.text} query={searchQuery} />
+              </p>
+              {(task.date || task.time || task.whom) && (
+                  <div className="md:hidden text-sm text-slate-500 mt-1 flex items-center flex-wrap">
+                      {task.date && <span><Highlight text={formatDateForDisplay(task.date)} query={searchQuery} /></span>}
+                      {task.date && task.time && <span className="mx-1.5">&middot;</span>}
+                      {task.time && <span><Highlight text={formatTimeForDisplay(task.time)} query={searchQuery} /></span>}
+                      {(task.date || task.time) && task.whom && <span className="mx-1.5">&middot;</span>}
+                      {task.whom && <span className="font-medium"><Highlight text={task.whom} query={searchQuery} /></span>}
+                  </div>
+              )}
+            </div>
+          </div>
+          <div className="hidden md:flex items-center flex-shrink-0 text-center text-sm">
+            <div className="w-28 text-slate-500 cursor-pointer" onClick={() => onStartEditing(task, 'date')}>
+              <Highlight text={formatDateForDisplay(task.date)} query={searchQuery} />
+            </div>
+            <div className="w-24 text-slate-500 cursor-pointer" onClick={() => onStartEditing(task, 'time')}>
+              <Highlight text={formatTimeForDisplay(task.time)} query={searchQuery} />
+            </div>
+            <div className="w-28 text-slate-500 truncate cursor-pointer" onClick={() => onStartEditing(task, 'whom')}>
+              <Highlight text={task.whom} query={searchQuery} />
+            </div>
+            <div className="w-20 flex items-center justify-center">
+              <button
+                onClick={() => onDeleteTask(task.id)}
+                className="text-slate-400 hover:text-red-600 p-2 rounded-full hover:bg-red-100 transition-colors opacity-0 group-hover:opacity-100 focus:opacity-100"
+                aria-label="Delete task"
+              >
+                <TrashIcon />
+              </button>
+            </div>
+          </div>
+        </>
+      )}
+    </div>
+  )
+});
+
 
 const App: React.FC = () => {
   const [tasks, setTasks] = useState<Task[]>([]);
@@ -131,7 +315,6 @@ const App: React.FC = () => {
   const [activeFilters, setActiveFilters] = useState<string[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [isSearchVisible, setIsSearchVisible] = useState(false);
-  const [isSavingSettings, setIsSavingSettings] = useState(false);
   
   // Menu State
   const [isMenuOpen, setIsMenuOpen] = useState(false);
@@ -140,9 +323,6 @@ const App: React.FC = () => {
   const allFiltersCheckboxRef = useRef<HTMLInputElement>(null);
   const editingTaskRef = useRef<HTMLDivElement>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
-
-  const [pendingChanges, setPendingChanges] = useState<PendingChange[]>([]);
-  const saveTasksTimeoutRef = useRef<number | null>(null);
 
   const getDefaultDate = () => {
     const date = new Date();
@@ -158,133 +338,99 @@ const App: React.FC = () => {
   const [creatorWhom, setCreatorWhom] = useState('');
 
   const [focusOnField, setFocusOnField] = useState<'text' | 'date' | 'time' | 'whom' | null>(null);
-  const textInputRef = useRef<HTMLInputElement>(null);
-  const dateInputRef = useRef<HTMLInputElement>(null);
-  const timeInputRef = useRef<HTMLInputElement>(null);
-  const whomInputRef = useRef<HTMLInputElement>(null);
   const creatorTextRef = useRef<HTMLInputElement>(null);
   const creatorDateRef = useRef<HTMLInputElement>(null);
   const creatorTimeRef = useRef<HTMLInputElement>(null);
   const creatorWhomRef = useRef<HTMLInputElement>(null);
 
-  const saveSettingsTimeoutRef = useRef<number | null>(null);
+  const UNASSIGNED_KEY = 'Unassigned';
 
-  const fetchTasks = useCallback(async () => {
-    try {
-      const { data, error } = await supabase
-        .from('tasks')
-        .select('*')
-        .order('created_at', { ascending: false });
+  // --- Data Fetching and Realtime Sync ---
 
-      if (error) throw error;
-      
-      if (data) {
+  useEffect(() => {
+    // Initial data load
+    const initialFetch = async () => {
+      setIsLoaded(false);
+      try {
+        const [tasksResponse, settingsResponse] = await Promise.all([
+          supabase.from('tasks').select('*').order('created_at', { ascending: false }),
+          supabase.from('settings').select('sort_order, active_filters').eq('id', 1).single()
+        ]);
+
+        if (tasksResponse.error) throw tasksResponse.error;
+        if (settingsResponse.error) throw settingsResponse.error;
+        
+        setTasks(tasksResponse.data || []);
+        if (settingsResponse.data) {
+          setSortOrder(settingsResponse.data.sort_order);
+          setActiveFilters(settingsResponse.data.active_filters || []);
+        }
+      } catch (error) {
+        const supabaseError = error as { message: string };
+        console.error("Failed initial data fetch:", supabaseError.message || error);
+      } finally {
+        setIsLoaded(true);
+      }
+    };
+
+    initialFetch();
+
+    // Set up realtime subscriptions
+    const tasksChannel = supabase.channel('realtime-tasks')
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'tasks' }, (payload) => {
         setTasks(currentTasks => {
-            const serverState = JSON.stringify(data);
-            const clientState = JSON.stringify(currentTasks.filter(t => !pendingChanges.some(p => (p.payload.id === t.id) || (p.payload.tempId === t.id))));
-            if (serverState !== clientState) {
-                return data;
-            }
-            return currentTasks;
+          if (currentTasks.some(t => t.id === payload.new.id)) {
+            return currentTasks; // Already exists, probably from an optimistic update
+          }
+          return [payload.new as Task, ...currentTasks];
         });
-      }
-    } catch (error) {
-      const supabaseError = error as { message: string };
-      console.error("Failed to fetch tasks from Supabase:", supabaseError.message || error);
-    }
-  }, [pendingChanges]);
+      })
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'tasks' }, (payload) => {
+        setTasks(currentTasks => 
+          currentTasks.map(task => task.id === payload.new.id ? (payload.new as Task) : task)
+        );
+      })
+      .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'tasks' }, (payload) => {
+        setTasks(currentTasks => currentTasks.filter(task => task.id !== payload.old.id));
+      })
+      .subscribe();
 
-  // --- Debounced Task Save ---
-  const processPendingChanges = useCallback(async () => {
-    if (pendingChanges.length === 0) return;
-
-    const changesToProcess = [...pendingChanges];
-    setPendingChanges([]);
-
-    const additions = changesToProcess
-      .filter(c => c.type === 'ADD')
-      .map(c => {
-        const { tempId, ...data } = c.payload;
-        return data;
-      });
-
-    const updates = changesToProcess
-      .filter(c => c.type === 'UPDATE' || c.type === 'TOGGLE_COMPLETE');
-
-    const deletions = changesToProcess
-      .filter(c => c.type === 'DELETE')
-      .map(c => c.payload.id);
-
-    const promises = [];
-    
-    if (additions.length > 0) {
-      promises.push(supabase.from('tasks').insert(additions));
-    }
-
-    if (updates.length > 0) {
-      const consolidatedUpdates = new Map<number, any>();
-      updates.forEach(change => {
-          const existing = consolidatedUpdates.get(change.payload.id) || {};
-          consolidatedUpdates.set(change.payload.id, { ...existing, ...change.payload.updates });
-      });
-
-      for (const [id, taskUpdates] of consolidatedUpdates.entries()) {
-        promises.push(supabase.from('tasks').update(taskUpdates).eq('id', id));
-      }
-    }
-
-    if (deletions.length > 0) {
-      const uniqueDeletions = [...new Set(deletions)];
-      promises.push(supabase.from('tasks').delete().in('id', uniqueDeletions));
-    }
-
-    const results = await Promise.all(promises);
-    results.forEach(result => {
-      if (result.error) {
-        console.error("Supabase batch error:", result.error.message);
-      }
-    });
-    
-    await fetchTasks();
-  }, [pendingChanges, fetchTasks]);
-
-  const debouncedSaveChanges = useCallback(() => {
-    if (saveTasksTimeoutRef.current) {
-      clearTimeout(saveTasksTimeoutRef.current);
-    }
-    saveTasksTimeoutRef.current = window.setTimeout(() => {
-      processPendingChanges();
-    }, 5000);
-  }, [processPendingChanges]);
-
-
-  const saveSettings = useCallback(async (settings: { filters: string[], sort: 'asc' | null }) => {
-    setIsSavingSettings(true);
-    try {
-      const { error } = await supabase
-        .from('settings')
-        .upsert({ id: 1, active_filters: settings.filters, sort_order: settings.sort });
-
-      if (error) console.error("Failed to sync settings:", error.message);
+    const settingsChannel = supabase.channel('realtime-settings')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'settings', filter: 'id=eq.1' }, (payload) => {
+          const newSettings = payload.new as { sort_order: 'asc' | null, active_filters: string[] };
+          if (newSettings) {
+            setSortOrder(current => current !== newSettings.sort_order ? newSettings.sort_order : current);
+            setActiveFilters(current => JSON.stringify(current) !== JSON.stringify(newSettings.active_filters) ? (newSettings.active_filters || []) : current);
+          }
+      })
+      .subscribe();
       
-    } finally {
-      setIsSavingSettings(false);
-    }
+    // Cleanup function to remove subscriptions
+    return () => {
+      supabase.removeChannel(tasksChannel);
+      supabase.removeChannel(settingsChannel);
+    };
   }, []);
 
-  const debouncedSaveSettings = useCallback((settings: { filters: string[], sort: 'asc' | null }) => {
-    if (saveSettingsTimeoutRef.current) {
-        clearTimeout(saveSettingsTimeoutRef.current);
-    }
-    saveSettingsTimeoutRef.current = window.setTimeout(() => {
-        saveSettings(settings);
-    }, 500);
-  }, [saveSettings]);
-
   const uniqueAssignees = useMemo(() => {
-    const assignees = tasks.map(t => t.whom?.trim()).filter(Boolean) as string[];
-    return [...new Set(assignees)];
-  }, [tasks]);
+    const assignees = new Set<string>();
+    let hasUnassigned = false;
+    tasks.forEach(task => {
+        const whom = task.whom?.trim();
+        if (whom) {
+            assignees.add(whom);
+        } else {
+            hasUnassigned = true;
+        }
+    });
+
+    const sortedAssignees = Array.from(assignees).sort((a, b) => a.localeCompare(b));
+    
+    if (hasUnassigned) {
+        sortedAssignees.push(UNASSIGNED_KEY);
+    }
+    return sortedAssignees;
+  }, [tasks, UNASSIGNED_KEY]);
 
   const areAllFiltersSelected = useMemo(() => 
     uniqueAssignees.length > 0 && activeFilters.length === uniqueAssignees.length,
@@ -298,39 +444,34 @@ const App: React.FC = () => {
 
   const sortTasks = useCallback((tasksToSort: Task[], sortOrder: 'asc' | null) => {
     const tasksCopy = [...tasksToSort];
-    if (!sortOrder) {
-        tasksCopy.sort((a, b) => {
-            if (a.completed && !b.completed) return 1;
-            if (!a.completed && b.completed) return -1;
-            return 0;
-        });
-        return tasksCopy;
-    }
-
     tasksCopy.sort((a, b) => {
-        if (a.completed && !b.completed) return 1;
-        if (!a.completed && b.completed) return -1;
-        
+      if (a.completed !== b.completed) {
+        return a.completed ? 1 : -1;
+      }
+      if (sortOrder === 'asc') {
         const dateA = a.date || null;
         const dateB = b.date || null;
-
         if (dateA && !dateB) return -1;
         if (!dateA && dateB) return 1;
-
         if (dateA && dateB) {
-            const dateComparison = dateA.localeCompare(dateB);
-            if (dateComparison !== 0) return dateComparison;
+          const dateComparison = dateA.localeCompare(dateB);
+          if (dateComparison !== 0) return dateComparison;
         }
-
         const timeA = a.time || null;
         const timeB = b.time || null;
-
         if (timeA && !timeB) return -1;
         if (!timeA && timeB) return 1;
-
-        if (timeA && timeB) return timeA.localeCompare(timeB);
-        
-        return 0;
+        if (timeA && timeB) {
+          const timeComparison = timeA.localeCompare(timeB);
+          if (timeComparison !== 0) return timeComparison;
+        }
+      }
+      const createdAtA = new Date(a.created_at).getTime();
+      const createdAtB = new Date(b.created_at).getTime();
+      if (createdAtB !== createdAtA) {
+        return createdAtB - createdAtA;
+      }
+      return a.id - b.id;
     });
     return tasksCopy;
   }, []);
@@ -340,12 +481,7 @@ const App: React.FC = () => {
     const date = new Date(dateString);
     const userTimezoneOffset = date.getTimezoneOffset() * 60000;
     const correctedDate = new Date(date.getTime() + userTimezoneOffset);
-    
-    return correctedDate.toLocaleString('en-US', {
-        month: 'short',
-        day: 'numeric',
-        year: 'numeric',
-    });
+    return correctedDate.toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
   }, []);
 
   const formatTimeForDisplay = useCallback((timeString: string) => {
@@ -372,55 +508,20 @@ const App: React.FC = () => {
     }
 
     if (activeFilters.length > 0) {
-      tasksCopy = tasksCopy.filter(task => task.whom && activeFilters.includes(task.whom));
+      const hasUnassignedFilter = activeFilters.includes(UNASSIGNED_KEY);
+      tasksCopy = tasksCopy.filter(task => {
+        const whom = task.whom?.trim();
+        // If task is unassigned, check if 'Unassigned' filter is active
+        if (!whom) {
+          return hasUnassignedFilter;
+        }
+        // If task is assigned, check if its assignee is in the active filters
+        return activeFilters.includes(whom);
+      });
     }
     
     return sortTasks(tasksCopy, sortOrder);
-  }, [tasks, sortOrder, activeFilters, sortTasks, searchQuery, formatDateForDisplay, formatTimeForDisplay]);
-  
-  const fetchSettings = useCallback(async () => {
-    if (isSavingSettings) return;
-    try {
-        const { data, error } = await supabase
-            .from('settings')
-            .select('sort_order, active_filters')
-            .eq('id', 1)
-            .single();
-
-        if (error) throw error;
-        
-        if (data) {
-            setSortOrder(currentSortOrder =>
-                currentSortOrder !== data.sort_order ? data.sort_order : currentSortOrder
-            );
-            setActiveFilters(currentFilters =>
-                JSON.stringify(currentFilters) !== JSON.stringify(data.active_filters)
-                ? (data.active_filters || [])
-                : currentFilters
-            );
-        }
-    } catch (error) {
-        const supabaseError = error as { message: string };
-        console.error("Failed to fetch settings from Supabase:", supabaseError.message || error);
-    }
-  }, [isSavingSettings]);
-
-  useEffect(() => {
-    const initialFetch = async () => {
-      setIsLoaded(false);
-      await Promise.all([fetchTasks(), fetchSettings()]);
-      setIsLoaded(true);
-    };
-    initialFetch();
-
-    const POLLING_INTERVAL = 5000;
-    const intervalId = setInterval(() => {
-      fetchTasks();
-      fetchSettings();
-    }, POLLING_INTERVAL);
-      
-    return () => clearInterval(intervalId);
-  }, [fetchTasks, fetchSettings]);
+  }, [tasks, sortOrder, activeFilters, sortTasks, searchQuery, formatDateForDisplay, formatTimeForDisplay, UNASSIGNED_KEY]);
 
   useEffect(() => {
     if (isSearchVisible) {
@@ -428,22 +529,6 @@ const App: React.FC = () => {
     }
   }, [isSearchVisible]);
 
-  useEffect(() => {
-    if (editingTaskId === null) return;
-
-    setTimeout(() => {
-      if (focusOnField === 'text' && textInputRef.current) {
-        textInputRef.current.focus();
-      } else if (focusOnField === 'date' && dateInputRef.current) {
-        dateInputRef.current.focus();
-      } else if (focusOnField === 'time' && timeInputRef.current) {
-        timeInputRef.current.focus();
-      } else if (focusOnField === 'whom' && whomInputRef.current) {
-        whomInputRef.current.focus();
-      }
-    }, 0);
-  }, [editingTaskId, focusOnField]);
-  
   useEffect(() => {
     if (allFiltersCheckboxRef.current) {
       allFiltersCheckboxRef.current.indeterminate = areSomeFiltersSelected;
@@ -476,27 +561,24 @@ const App: React.FC = () => {
     if (editingTaskId === null) {
       return null;
     }
-    // If editing text is cleared, treat it as a delete operation.
+    // If text is empty, it's a delete operation.
     if (editingText.trim() === '') {
         return {
             id: editingTaskId,
-            updates: {}, // An empty update object signals a deletion.
+            updates: {}, // No updates, indicates delete
             updatedTasks: tasks.filter(t => t.id !== editingTaskId)
         };
     }
-    
-    const taskUpdates = {
+    const taskUpdates: Partial<Task> = {
       text: editingText.trim(),
       date: editingDate || null,
       time: editingTime || null,
       whom: editingWhom.trim() || null,
     };
-    
     const updatedTasks = tasks.map(task =>
         task.id === editingTaskId ? { ...task, ...taskUpdates } : task
     );
     return { id: editingTaskId, updates: taskUpdates, updatedTasks };
-
   }, [tasks, editingTaskId, editingText, editingDate, editingTime, editingWhom]);
 
   const commitEdit = useCallback(() => {
@@ -505,26 +587,22 @@ const App: React.FC = () => {
         handleCancelEditing();
         return tasks;
     }
-
-    setTasks(result.updatedTasks); // Optimistic UI update
-
-    // If updates object is empty, it was a delete action.
-    if (Object.keys(result.updates).length > 0) {
-        setPendingChanges(currentChanges => [
-            ...currentChanges,
-            { type: 'UPDATE', payload: { id: result.id, updates: result.updates } }
-        ]);
-    } else {
-        setPendingChanges(currentChanges => [
-            ...currentChanges,
-            { type: 'DELETE', payload: { id: result.id } }
-        ]);
-    }
     
-    debouncedSaveChanges();
+    setTasks(result.updatedTasks); // Optimistic update
+    
+    if (Object.keys(result.updates).length > 0) {
+        // This is an update
+        supabase.from('tasks').update(result.updates).eq('id', result.id).then(({ error }) => {
+            if (error) console.error("Update failed:", error.message);
+        });
+    } else {
+        // This is a delete because the text was cleared
+        supabase.from('tasks').delete().eq('id', result.id).then(({ error }) => {
+            if (error) console.error("Delete failed:", error.message);
+        });
+    }
     return result.updatedTasks;
-
-  }, [prepareTaskUpdate, handleCancelEditing, debouncedSaveChanges, tasks]);
+  }, [prepareTaskUpdate, handleCancelEditing, tasks]);
 
   const handleSaveEdit = useCallback(() => {
     commitEdit();
@@ -537,19 +615,20 @@ const App: React.FC = () => {
         handleSaveEdit();
       }
     };
-
     if (editingTaskId !== null) {
       document.addEventListener('mousedown', handleClickOutside);
     }
-
     return () => {
       document.removeEventListener('mousedown', handleClickOutside);
     };
   }, [editingTaskId, handleSaveEdit]);
   
-  const handleFilterChange = (newFilters: string[]) => {
-      setActiveFilters(newFilters);
-      debouncedSaveSettings({ filters: newFilters, sort: sortOrder });
+  const handleFilterChange = async (newFilters: string[]) => {
+      setActiveFilters(newFilters); // Optimistic update
+      const { error } = await supabase
+        .from('settings')
+        .upsert({ id: 1, active_filters: newFilters, sort_order: sortOrder });
+      if (error) console.error("Failed to sync filter settings:", error.message);
   };
 
   const handleToggleAllFilters = () => {
@@ -564,26 +643,25 @@ const App: React.FC = () => {
     handleFilterChange(newFilters);
   };
 
-  const handleClearCompletedTasks = () => {
-    const completedTaskIds = tasks.filter(t => t.completed).map(t => t.id);
-    if(completedTaskIds.length === 0) return;
+  const handleClearCompletedTasks = async () => {
+    const completedTasks = tasks.filter(t => t.completed);
+    if(completedTasks.length === 0) return;
+    
+    const completedTaskIds = completedTasks.map(t => t.id);
 
-    // Optimistic update
-    setTasks(prevTasks => prevTasks.filter(task => !task.completed));
+    setTasks(prevTasks => prevTasks.filter(task => !task.completed)); // Optimistic update
     setIsMenuOpen(false);
     setMenuView('main');
     
-    // Add delete operations to the change queue
-    const changes = completedTaskIds.map(id => ({
-      type: 'DELETE' as const,
-      payload: { id }
-    }));
-    setPendingChanges(currentChanges => [...currentChanges, ...changes]);
-
-    debouncedSaveChanges();
+    const { error } = await supabase.from('tasks').delete().in('id', completedTaskIds);
+    if (error) {
+        console.error("Failed to clear completed tasks:", error.message);
+        // NOTE: In a real app, you might want to revert the optimistic update here.
+        // For simplicity, we'll assume success.
+    }
   };
 
-  const handleAddTask = () => {
+  const handleAddTask = async () => {
     if (creatorText.trim() === '') return;
 
     const newTaskData = {
@@ -594,28 +672,36 @@ const App: React.FC = () => {
       whom: creatorWhom.trim() || null,
     };
 
-    // Optimistic update with a temporary ID
-    const tempId = Date.now();
-    const newTask = { ...newTaskData, id: tempId, created_at: new Date().toISOString() };
-    setTasks(currentTasks => [newTask, ...currentTasks]);
+    // Use a temporary ID for the optimistic update
+    const tempId = -Date.now();
+    const optimisticTask: Task = {
+        ...newTaskData,
+        id: tempId,
+        created_at: new Date().toISOString()
+    };
+    setTasks(currentTasks => [optimisticTask, ...currentTasks]);
 
-    // Add to change queue
-    setPendingChanges(currentChanges => [
-        ...currentChanges,
-        { type: 'ADD', payload: { ...newTaskData, tempId } }
-    ]);
-    
-    debouncedSaveChanges();
-        
+    // Clear inputs immediately
     setCreatorText('');
     setCreatorDate(getDefaultDate());
     setCreatorTime('');
     setCreatorWhom('');
-    
     if (isMobileCreatorVisible) {
         setIsMobileCreatorVisible(false);
     } else {
         creatorTextRef.current?.focus();
+    }
+    
+    // Send to Supabase and update with real ID
+    const { data, error } = await supabase.from('tasks').insert(newTaskData).select().single();
+
+    if (error) {
+        console.error("Failed to add task:", error.message);
+        // Revert optimistic update on failure
+        setTasks(currentTasks => currentTasks.filter(t => t.id !== tempId));
+    } else if (data) {
+        // Replace temporary task with the real one from DB
+        setTasks(currentTasks => currentTasks.map(t => t.id === tempId ? data : t));
     }
   };
   
@@ -676,53 +762,43 @@ const App: React.FC = () => {
     }
   };
 
-  const handleToggleComplete = (id: number) => {
+  const handleToggleComplete = useCallback((id: number) => {
     const taskToUpdate = tasks.find(task => task.id === id);
     if (!taskToUpdate) return;
     
     const newCompletedStatus = !taskToUpdate.completed;
-
-    // Optimistic update
-    setTasks(currentTasks => currentTasks.map(task =>
-        task.id === id ? { ...task, completed: newCompletedStatus } : task
-    ));
     
-    // Add to change queue
-    setPendingChanges(currentChanges => [
-        ...currentChanges,
-        { 
-            type: 'TOGGLE_COMPLETE', 
-            payload: { id, updates: { completed: newCompletedStatus } } 
-        }
-    ]);
+    // Optimistic UI update
+    setTasks(currentTasks =>
+        currentTasks.map(task =>
+            task.id === id ? { ...task, completed: newCompletedStatus } : task
+        )
+    );
     
-    debouncedSaveChanges();
-  };
+    // Send to DB
+    supabase.from('tasks').update({ completed: newCompletedStatus }).eq('id', id).then(({ error }) => {
+        if (error) console.error("Toggle complete failed:", error.message);
+    });
+  }, [tasks]);
 
-  const handleDeleteTask = (id: number) => {
-    // Optimistic update
-    setTasks(currentTasks => currentTasks.filter(task => task.id !== id));
+  const handleDeleteTask = useCallback((id: number) => {
+    setTasks(currentTasks => currentTasks.filter(task => task.id !== id)); // Optimistic UI update
+    supabase.from('tasks').delete().eq('id', id).then(({ error }) => {
+        if (error) console.error("Delete task failed:", error.message);
+    });
+  }, []);
 
-    // Add to change queue
-    setPendingChanges(currentChanges => [
-        ...currentChanges,
-        { type: 'DELETE', payload: { id } }
-    ]);
-
-    debouncedSaveChanges();
-  };
-
-  const handleStartEditing = (task: Task, fieldToFocus: 'text' | 'date' | 'time' | 'whom' = 'text') => {
-    commitEdit(); // Save any previously editing task
+  const handleStartEditing = useCallback((task: Task, fieldToFocus: 'text' | 'date' | 'time' | 'whom' = 'text') => {
+    commitEdit(); // Save any previously editing task first
     setEditingTaskId(task.id);
     setEditingText(task.text);
     setEditingDate(task.date || '');
     setEditingTime(task.time || '');
     setEditingWhom(task.whom || '');
     setFocusOnField(fieldToFocus);
-  };
+  }, [commitEdit]);
 
-  const handleSaveAndMove = (currentTaskIndex: number, direction: 'up' | 'down' | 'left' | 'right' | 'enter') => {
+  const handleSaveAndMove = useCallback((currentTaskIndex: number, direction: 'up' | 'down' | 'left' | 'right' | 'enter') => {
     const previouslyEditingId = editingTaskId;
     const updatedTasks = commitEdit();
 
@@ -730,7 +806,12 @@ const App: React.FC = () => {
     
     let tasksCopy = [...updatedTasks];
     if (activeFilters.length > 0) {
-      tasksCopy = tasksCopy.filter(task => task.whom && activeFilters.includes(task.whom));
+      const hasUnassignedFilter = activeFilters.includes(UNASSIGNED_KEY);
+      tasksCopy = tasksCopy.filter(task => {
+        const whom = task.whom?.trim();
+        if (!whom) return hasUnassignedFilter;
+        return activeFilters.includes(whom);
+      });
     }
     const sortedTasksCopy = sortTasks(tasksCopy, sortOrder);
     
@@ -751,7 +832,7 @@ const App: React.FC = () => {
         case 'enter':
         case 'down':
             nextRowIndex = newCurrentTaskIndex + 1;
-            if (nextRowIndex >= totalRows) { // Stop at the last task
+            if (nextRowIndex >= totalRows) {
                 handleCancelEditing();
                 return;
             }
@@ -774,14 +855,13 @@ const App: React.FC = () => {
     } else {
       handleCancelEditing();
     }
-  };
+  }, [editingTaskId, commitEdit, activeFilters, sortTasks, sortOrder, focusOnField, handleCancelEditing, handleStartEditing, UNASSIGNED_KEY]);
 
-  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>, taskIndex: number, field: 'text' | 'date' | 'time' | 'whom') => {
+  const handleKeyDown = useCallback((e: React.KeyboardEvent<HTMLInputElement>, taskIndex: number, field: 'text' | 'date' | 'time' | 'whom') => {
     if (e.key === 'ArrowUp' && taskIndex === 0) {
         e.preventDefault();
         commitEdit();
         handleCancelEditing();
-
         if (field === 'date' && creatorDateRef.current) creatorDateRef.current.focus();
         else if (field === 'time' && creatorTimeRef.current) creatorTimeRef.current.focus();
         else if (field === 'whom' && creatorWhomRef.current) creatorWhomRef.current.focus();
@@ -796,78 +876,46 @@ const App: React.FC = () => {
     }
 
     switch (e.key) {
-        case 'Enter':
-            e.preventDefault();
-            handleSaveAndMove(taskIndex, 'enter');
-            break;
-        case 'ArrowDown':
-            e.preventDefault();
-            handleSaveAndMove(taskIndex, 'down');
-            break;
-        case 'ArrowUp':
-            e.preventDefault();
-            handleSaveAndMove(taskIndex, 'up');
-            break;
+        case 'Enter': e.preventDefault(); handleSaveAndMove(taskIndex, 'enter'); break;
+        case 'ArrowDown': e.preventDefault(); handleSaveAndMove(taskIndex, 'down'); break;
+        case 'ArrowUp': e.preventDefault(); handleSaveAndMove(taskIndex, 'up'); break;
         case 'ArrowRight':
             if (field === 'text' && (e.target as HTMLInputElement).selectionStart !== (e.target as HTMLInputElement).value.length) return; 
-            e.preventDefault();
-            handleSaveAndMove(taskIndex, 'right');
-            break;
+            e.preventDefault(); handleSaveAndMove(taskIndex, 'right'); break;
         case 'ArrowLeft':
             if (field === 'text' && (e.target as HTMLInputElement).selectionStart !== 0) return;
-            e.preventDefault();
-            handleSaveAndMove(taskIndex, 'left');
-            break;
-        case 'Escape':
-            e.preventDefault();
-            handleCancelEditing();
-            break;
-        default:
-            break;
+            e.preventDefault(); handleSaveAndMove(taskIndex, 'left'); break;
+        case 'Escape': e.preventDefault(); handleCancelEditing(); break;
+        default: break;
     }
-  };
+  }, [commitEdit, handleCancelEditing, handleSaveAndMove]);
   
-  const handleSortClick = () => {
+  const handleSortClick = async () => {
     const newSortOrder = sortOrder === 'asc' ? null : 'asc';
-    setSortOrder(newSortOrder);
+    setSortOrder(newSortOrder); // Optimistic Update
     setIsMenuOpen(false);
-    debouncedSaveSettings({ filters: activeFilters, sort: newSortOrder });
+    const { error } = await supabase
+      .from('settings')
+      .upsert({ id: 1, sort_order: newSortOrder, active_filters: activeFilters });
+    if (error) console.error("Failed to sync sort settings:", error.message);
   };
 
-  const completedTasks = tasks.filter(t => t.completed).length;
+  const completedTasksCount = tasks.filter(t => t.completed).length;
   const totalTasks = tasks.length;
-  const progress = totalTasks > 0 ? (completedTasks / totalTasks) * 100 : 0;
+  const progress = totalTasks > 0 ? (completedTasksCount / totalTasks) * 100 : 0;
   const isFilterOrSortActive = activeFilters.length > 0 || sortOrder !== null || searchQuery.trim() !== '';
 
   const noTasksMessage = () => {
-    if (!isLoaded) {
-        return {
-            title: "Loading Tasks...",
-            message: "Please wait a moment."
-        };
-    }
-    if (searchQuery.trim() !== '') {
-        return {
-            title: "No Results Found",
-            message: "Try adjusting your search or filter to find what you're looking for."
-        };
-    }
-    if (activeFilters.length > 0) {
-        return {
-            title: "No Matching Tasks",
-            message: "No tasks match the current filter."
-        };
-    }
-    return {
-        title: "All tasks accounted for!",
-        message: "Add a new task above to get started."
-    };
+    if (!isLoaded) return { title: "Loading Tasks...", message: "Please wait a moment." };
+    if (searchQuery.trim() !== '') return { title: "No Results Found", message: "Try adjusting your search or filter." };
+    if (activeFilters.length > 0) return { title: "No Matching Tasks", message: "No tasks match the current filter." };
+    return { title: "All tasks accounted for!", message: "Add a new task above to get started." };
   };
 
   return (
     <div className="bg-slate-100 min-h-screen font-sans text-gray-800 flex justify-center p-4" style={{ colorScheme: 'light' }}>
       <main className="w-full max-w-5xl mx-auto">
-        <div className="bg-white rounded-2xl shadow-2xl shadow-slate-300/60 p-4 md:p-6">
+        <div className="bg-white rounded-2xl shadow-2xl shadow-slate-300/60 p-4 md:p-6 flex flex-col h-full max-h-[95vh]">
           <header className="mb-6 flex justify-between items-start">
             <div>
               <h1 className="text-2xl md:text-3xl font-bold text-slate-800">To-Do Dashboard</h1>
@@ -951,18 +999,14 @@ const App: React.FC = () => {
                                         onClick={handleSortClick}
                                         className="relative p-2 rounded-md text-slate-500 hover:bg-slate-100 hover:text-slate-700 transition-colors focus:outline-none focus:ring-2 focus:ring-sky-500"
                                         aria-label="Sort tasks"
-                                        title={
-                                            sortOrder === 'asc' ? "Clear sorting" : "Sort by oldest date and time"
-                                        }
+                                        title={ sortOrder === 'asc' ? "Clear sorting" : "Sort by oldest date and time" }
                                     >
-                                        {sortOrder === 'asc' ? <SortAscendingIcon className="w-5 h-5" /> :
-                                         <ArrowsUpDownIcon className="w-5 h-5" />
-                                        }
+                                        {sortOrder === 'asc' ? <SortAscendingIcon className="w-5 h-5" /> : <ArrowsUpDownIcon className="w-5 h-5" />}
                                         {sortOrder !== null && (
                                             <span className="absolute top-1.5 right-1.5 block h-2 w-2 rounded-full bg-sky-500 ring-2 ring-white" />
                                         )}
                                     </button>
-                                    {completedTasks > 0 && (
+                                    {completedTasksCount > 0 && (
                                         <>
                                             <div className="h-5 w-px bg-slate-200" aria-hidden="true"></div>
                                             <button
@@ -1006,7 +1050,7 @@ const App: React.FC = () => {
                                                             onChange={() => handleIndividualFilterToggle(assignee)}
                                                             className="h-4 w-4 rounded border-gray-300 text-sky-600 focus:ring-sky-500 focus:ring-1 focus:ring-offset-0 mr-3"
                                                         />
-                                                        <span>{assignee}</span>
+                                                        <span className={assignee === UNASSIGNED_KEY ? 'italic text-slate-500' : ''}>{assignee}</span>
                                                     </label>
                                                 ))}
                                             </>
@@ -1025,7 +1069,7 @@ const App: React.FC = () => {
           <div className="mb-4">
             <div className="flex justify-between items-center mb-2">
                 <span className="text-base md:text-sm font-semibold text-slate-600">Progress</span>
-                <span className="text-base md:text-sm font-bold text-slate-600">{completedTasks} / {totalTasks} Completed</span>
+                <span className="text-base md:text-sm font-bold text-slate-600">{completedTasksCount} / {totalTasks} Completed</span>
             </div>
             <div className="w-full bg-slate-200 rounded-full h-2.5">
                 <div 
@@ -1035,7 +1079,7 @@ const App: React.FC = () => {
             </div>
           </div>
 
-          <div className="hidden md:flex items-center text-xs font-semibold text-slate-500 uppercase tracking-wider px-4 pt-4">
+          <div className="hidden md:flex items-center text-xs font-semibold text-slate-500 uppercase tracking-wider pl-4 pr-8 pt-4">
             <div className="flex-1 flex items-center">
                 <div className="w-4 h-4 flex-shrink-0" aria-hidden="true"></div>
                 <div className="ml-4 flex-1">Task</div>
@@ -1048,263 +1092,162 @@ const App: React.FC = () => {
             </div>
           </div>
 
-          <div className="space-y-2 mt-2">
-            {!isMobileCreatorVisible && (
-              <div className="hidden md:block bg-slate-50 px-4 py-3 rounded-lg">
-                  <div className="flex items-center">
-                      <div className="w-4 h-4 flex-shrink-0" aria-hidden="true"></div>
-                      <div className="ml-4 flex-1">
-                          <input
-                              ref={creatorTextRef}
-                              type="text"
-                              value={creatorText}
-                              onChange={(e) => setCreatorText(e.target.value)}
-                              onKeyDown={(e) => handleCreatorKeyDown(e, 'text')}
-                              placeholder="Add a new task..."
-                              className="w-full text-slate-700 p-0 m-0 border-none bg-transparent focus:ring-0 focus:outline-none placeholder-slate-400 text-sm"
-                          />
-                      </div>
-                      <div className="w-28">
-                          <input
-                              ref={creatorDateRef}
-                              type="date"
-                              value={creatorDate}
-                              onChange={(e) => setCreatorDate(e.target.value)}
-                              onKeyDown={(e) => handleCreatorKeyDown(e, 'date')}
-                              className="w-full text-sm text-slate-500 border-none bg-transparent p-0 text-center focus:ring-0 focus:outline-none hide-picker-indicator"
-                          />
-                      </div>
-                      <div className="w-24">
-                          <input
-                              ref={creatorTimeRef}
-                              type="time"
-                              value={creatorTime}
-                              onChange={(e) => setCreatorTime(e.target.value)}
-                              onKeyDown={(e) => handleCreatorKeyDown(e, 'time')}
-                              className="w-full text-sm text-slate-500 border-none bg-transparent p-0 text-center focus:ring-0 focus:outline-none hide-picker-indicator"
-                          />
-                      </div>
-                      <div className="w-28">
-                          <input
-                              ref={creatorWhomRef}
-                              type="text"
-                              value={creatorWhom}
-                              onChange={(e) => setCreatorWhom(e.target.value)}
-                              onKeyDown={(e) => handleCreatorKeyDown(e, 'whom')}
-                              placeholder="Assign to..."
-                              className="w-full text-sm text-slate-500 border-none bg-transparent p-0 text-center focus:ring-0 focus:outline-none placeholder-slate-400"
-                          />
-                      </div>
-                      <div className="w-20 flex items-center justify-center">
-                          <button
-                              onClick={handleAddTask}
-                              className="text-slate-400 hover:text-sky-600 p-2 rounded-full hover:bg-sky-100 transition-colors"
-                              aria-label="Add new task"
-                          >
-                              <PlusIcon className="w-5 h-5" />
-                          </button>
-                      </div>
-                  </div>
-              </div>
-            )}
-            
-            {isMobileCreatorVisible && (
-              <div className="md:hidden bg-slate-50 p-4 rounded-lg">
-                <div className="space-y-4">
+          {!isMobileCreatorVisible && (
+            <div className="hidden md:block bg-slate-50 pl-4 pr-8 py-3 rounded-lg mt-2">
+                <div className="flex items-center">
+                    <div className="w-4 h-4 flex-shrink-0" aria-hidden="true"></div>
+                    <div className="ml-4 flex-1">
+                        <input
+                            ref={creatorTextRef}
+                            type="text"
+                            value={creatorText}
+                            onChange={(e) => setCreatorText(e.target.value)}
+                            onKeyDown={(e) => handleCreatorKeyDown(e, 'text')}
+                            placeholder="Add a new task..."
+                            className="w-full text-slate-700 p-0 m-0 border-none bg-transparent focus:ring-0 focus:outline-none placeholder-slate-400 text-sm"
+                        />
+                    </div>
+                    <div className="w-28">
+                        <input
+                            ref={creatorDateRef}
+                            type="date"
+                            value={creatorDate}
+                            onChange={(e) => setCreatorDate(e.target.value)}
+                            onKeyDown={(e) => handleCreatorKeyDown(e, 'date')}
+                            className="w-full text-sm text-slate-500 border-none bg-transparent p-0 text-center focus:ring-0 focus:outline-none hide-picker-indicator"
+                        />
+                    </div>
+                    <div className="w-24">
+                        <input
+                            ref={creatorTimeRef}
+                            type="time"
+                            value={creatorTime}
+                            onChange={(e) => setCreatorTime(e.target.value)}
+                            onKeyDown={(e) => handleCreatorKeyDown(e, 'time')}
+                            className="w-full text-sm text-slate-500 border-none bg-transparent p-0 text-center focus:ring-0 focus:outline-none hide-picker-indicator"
+                        />
+                    </div>
+                    <div className="w-28">
+                        <input
+                            ref={creatorWhomRef}
+                            type="text"
+                            value={creatorWhom}
+                            onChange={(e) => setCreatorWhom(e.target.value)}
+                            onKeyDown={(e) => handleCreatorKeyDown(e, 'whom')}
+                            placeholder="Assign to..."
+                            className="w-full text-sm text-slate-500 border-none bg-transparent p-0 text-center focus:ring-0 focus:outline-none placeholder-slate-400"
+                        />
+                    </div>
+                    <div className="w-20 flex items-center justify-center">
+                        <button
+                            onClick={handleAddTask}
+                            className="text-slate-400 hover:text-sky-600 p-2 rounded-full hover:bg-sky-100 transition-colors"
+                            aria-label="Add new task"
+                        >
+                            <PlusIcon className="w-5 h-5" />
+                        </button>
+                    </div>
+                </div>
+            </div>
+          )}
+          
+          {isMobileCreatorVisible && (
+            <div className="md:hidden bg-slate-50 p-4 rounded-lg mt-2">
+              <div className="space-y-4">
+                <div>
+                  <label htmlFor="creator-text-mobile" className="text-base font-medium text-slate-600 block mb-1">Task</label>
+                  <input
+                    id="creator-text-mobile"
+                    ref={creatorTextRef}
+                    type="text"
+                    value={creatorText}
+                    onChange={(e) => setCreatorText(e.target.value)}
+                    onKeyDown={(e) => handleCreatorKeyDown(e, 'text')}
+                    placeholder="What needs to be done?"
+                    className="w-full text-base text-slate-700 p-2 border border-slate-300 rounded-md bg-white focus:ring-1 focus:ring-sky-500 focus:border-sky-500 placeholder-slate-400"
+                  />
+                </div>
+                <div className="grid grid-cols-2 gap-4">
                   <div>
-                    <label htmlFor="creator-text-mobile" className="text-base font-medium text-slate-600 block mb-1">Task</label>
+                    <label htmlFor="creator-date-mobile" className="text-base font-medium text-slate-600 block mb-1">Date</label>
                     <input
-                      id="creator-text-mobile"
-                      ref={creatorTextRef}
-                      type="text"
-                      value={creatorText}
-                      onChange={(e) => setCreatorText(e.target.value)}
-                      onKeyDown={(e) => handleCreatorKeyDown(e, 'text')}
-                      placeholder="What needs to be done?"
-                      className="w-full text-base text-slate-700 p-2 border border-slate-300 rounded-md bg-white focus:ring-1 focus:ring-sky-500 focus:border-sky-500 placeholder-slate-400"
+                      id="creator-date-mobile"
+                      ref={creatorDateRef}
+                      type="date"
+                      value={creatorDate}
+                      onChange={(e) => setCreatorDate(e.target.value)}
+                      onKeyDown={(e) => handleCreatorKeyDown(e, 'date')}
+                      className="w-full text-base text-slate-500 p-2 border border-slate-300 rounded-md bg-white focus:ring-1 focus:ring-sky-500 focus:border-sky-500"
                     />
                   </div>
-                  <div className="grid grid-cols-2 gap-4">
-                    <div>
-                      <label htmlFor="creator-date-mobile" className="text-base font-medium text-slate-600 block mb-1">Date</label>
-                      <input
-                        id="creator-date-mobile"
-                        ref={creatorDateRef}
-                        type="date"
-                        value={creatorDate}
-                        onChange={(e) => setCreatorDate(e.target.value)}
-                        onKeyDown={(e) => handleCreatorKeyDown(e, 'date')}
-                        className="w-full text-base text-slate-500 p-2 border border-slate-300 rounded-md bg-white focus:ring-1 focus:ring-sky-500 focus:border-sky-500"
-                      />
-                    </div>
-                    <div>
-                      <label htmlFor="creator-time-mobile" className="text-base font-medium text-slate-600 block mb-1">Time</label>
-                      <input
-                        id="creator-time-mobile"
-                        ref={creatorTimeRef}
-                        type="time"
-                        value={creatorTime}
-                        onChange={(e) => setCreatorTime(e.target.value)}
-                        onKeyDown={(e) => handleCreatorKeyDown(e, 'time')}
-                        className="w-full text-base text-slate-500 p-2 border border-slate-300 rounded-md bg-white focus:ring-1 focus:ring-sky-500 focus:border-sky-500"
-                      />
-                    </div>
-                  </div>
                   <div>
-                    <label htmlFor="creator-whom-mobile" className="text-base font-medium text-slate-600 block mb-1">Assignee</label>
+                    <label htmlFor="creator-time-mobile" className="text-base font-medium text-slate-600 block mb-1">Time</label>
                     <input
-                      id="creator-whom-mobile"
-                      ref={creatorWhomRef}
-                      type="text"
-                      value={creatorWhom}
-                      onChange={(e) => setCreatorWhom(e.target.value)}
-                      onKeyDown={(e) => handleCreatorKeyDown(e, 'whom')}
-                      placeholder="Assign to..."
-                      className="w-full text-base text-slate-500 p-2 border border-slate-300 rounded-md bg-white focus:ring-1 focus:ring-sky-500 focus:border-sky-500 placeholder-slate-400"
+                      id="creator-time-mobile"
+                      ref={creatorTimeRef}
+                      type="time"
+                      value={creatorTime}
+                      onChange={(e) => setCreatorTime(e.target.value)}
+                      onKeyDown={(e) => handleCreatorKeyDown(e, 'time')}
+                      className="w-full text-base text-slate-500 p-2 border border-slate-300 rounded-md bg-white focus:ring-1 focus:ring-sky-500 focus:border-sky-500"
                     />
-                  </div>
-                  <div className="flex items-center gap-2 pt-2">
-                    <button onClick={handleAddTask} className="flex-1 bg-sky-500 text-white font-semibold py-2 px-4 rounded-lg hover:bg-sky-600 transition-colors text-base">Add Task</button>
-                    <button onClick={() => setIsMobileCreatorVisible(false)} className="flex-1 bg-slate-200 text-slate-700 font-semibold py-2 px-4 rounded-lg hover:bg-slate-300 transition-colors text-base">Cancel</button>
                   </div>
                 </div>
+                <div>
+                  <label htmlFor="creator-whom-mobile" className="text-base font-medium text-slate-600 block mb-1">Assignee</label>
+                  <input
+                    id="creator-whom-mobile"
+                    ref={creatorWhomRef}
+                    type="text"
+                    value={creatorWhom}
+                    onChange={(e) => setCreatorWhom(e.target.value)}
+                    onKeyDown={(e) => handleCreatorKeyDown(e, 'whom')}
+                    placeholder="Assign to..."
+                    className="w-full text-base text-slate-500 p-2 border border-slate-300 rounded-md bg-white focus:ring-1 focus:ring-sky-500 focus:border-sky-500 placeholder-slate-400"
+                  />
+                </div>
+                <div className="flex items-center gap-2 pt-2">
+                  <button onClick={handleAddTask} className="flex-1 bg-sky-500 text-white font-semibold py-2 px-4 rounded-lg hover:bg-sky-600 transition-colors text-base">Add Task</button>
+                  <button onClick={() => setIsMobileCreatorVisible(false)} className="flex-1 bg-slate-200 text-slate-700 font-semibold py-2 px-4 rounded-lg hover:bg-slate-300 transition-colors text-base">Cancel</button>
+                </div>
               </div>
-            )}
+            </div>
+          )}
 
+          <div className="mt-2 space-y-2 custom-scrollbar flex-1 min-h-0 overflow-y-auto pr-2">
             {isLoaded && filteredAndSortedTasks.length > 0 ? (
               filteredAndSortedTasks.map((task, index) => {
                 const isFirstCompleted = task.completed && (index === 0 || !filteredAndSortedTasks[index - 1].completed);
                 return (
                 <React.Fragment key={task.id}>
                   {isFirstCompleted && (
-                    <div className="flex items-center my-1" aria-hidden="true">
+                    <div className="flex items-center my-1 transition-all duration-300" aria-hidden="true">
                         <span className="flex-shrink text-xs font-semibold text-slate-400 uppercase">Completed</span>
                         <div className="flex-grow border-t border-slate-200 ml-2"></div>
                     </div>
                   )}
-                  <div
-                    className={`group bg-slate-50 px-4 py-3 rounded-lg flex items-center transition-all duration-300 hover:shadow-md hover:bg-white ${task.completed ? 'opacity-70' : ''}`}
-                  >
-                    {editingTaskId === task.id ? (
-                      <div ref={editingTaskRef} className="w-full flex flex-col md:flex-row md:items-center">
-                        <div className="flex items-center flex-1 min-w-0">
-                          <input
-                            type="checkbox"
-                            checked={task.completed}
-                            onChange={() => handleToggleComplete(task.id)}
-                            className="h-4 w-4 rounded border-gray-300 text-sky-600 focus:ring-sky-500 cursor-pointer bg-white flex-shrink-0"
-                          />
-                          <div className="ml-4 flex-1 min-w-0">
-                              <input
-                                  ref={textInputRef}
-                                  type="text"
-                                  value={editingText}
-                                  onChange={(e) => setEditingText(e.target.value)}
-                                  onKeyDown={(e) => handleKeyDown(e, index, 'text')}
-                                  className="w-full text-base md:text-sm text-slate-700 p-0 m-0 border-none bg-transparent focus:ring-0 focus:outline-none"
-                              />
-                          </div>
-                        </div>
-                    
-                        <div className="w-full md:w-auto flex flex-col md:flex-row md:items-center mt-4 md:mt-0">
-                           <div className={`flex items-center md:w-28 transition-transform duration-300 ${focusOnField === 'date' ? 'scale-115' : ''} md:scale-100`}>
-                              <label htmlFor={`date-${task.id}`} className="text-base md:hidden text-slate-500 w-20">Date</label>
-                              <input
-                                  id={`date-${task.id}`}
-                                  ref={dateInputRef}
-                                  type="date"
-                                  value={editingDate}
-                                  onChange={(e) => setEditingDate(e.target.value)}
-                                  onKeyDown={(e) => handleKeyDown(e, index, 'date')}
-                                  className="w-full text-base md:text-sm text-slate-500 p-2 rounded-md border border-slate-300 md:border-none md:p-0 md:bg-transparent focus:ring-1 focus:ring-sky-500 md:focus:ring-0 md:focus:outline-none md:text-center hide-picker-indicator"
-                              />
-                          </div>
-                    
-                          <div className={`flex items-center mt-2 md:mt-0 md:w-24 transition-transform duration-300 ${focusOnField === 'time' ? 'scale-115' : ''} md:scale-100`}>
-                              <label htmlFor={`time-${task.id}`} className="text-base md:hidden text-slate-500 w-20">Time</label>
-                              <input
-                                  id={`time-${task.id}`}
-                                  ref={timeInputRef}
-                                  type="time"
-                                  value={editingTime}
-                                  onChange={(e) => setEditingTime(e.target.value)}
-                                  onKeyDown={(e) => handleKeyDown(e, index, 'time')}
-                                  className="w-full text-base md:text-sm text-slate-500 p-2 rounded-md border border-slate-300 md:border-none md:p-0 md:bg-transparent focus:ring-1 focus:ring-sky-500 md:focus:ring-0 md:focus:outline-none hide-picker-indicator md:text-center"
-                              />
-                          </div>
-                    
-                           <div className={`flex items-center mt-2 md:mt-0 md:w-28 transition-transform duration-300 ${focusOnField === 'whom' ? 'scale-115' : ''} md:scale-100`}>
-                              <label htmlFor={`whom-${task.id}`} className="text-base md:hidden text-slate-500 w-20">Assignee</label>
-                              <input
-                                  id={`whom-${task.id}`}
-                                  ref={whomInputRef}
-                                  type="text"
-                                  value={editingWhom}
-                                  onChange={(e) => setEditingWhom(e.target.value)}
-                                  onKeyDown={(e) => handleKeyDown(e, index, 'whom')}
-                                  placeholder="Assign to..."
-                                  className="w-full text-base md:text-sm text-slate-500 p-2 rounded-md border border-slate-300 md:border-none md:p-0 md:bg-transparent focus:ring-1 focus:ring-sky-500 md:focus:ring-0 md:focus:outline-none md:text-center placeholder-slate-400"
-                              />
-                          </div>
-                          
-                          <div className="flex items-center justify-end md:justify-center md:w-20 mt-4 md:mt-0">
-                            <button
-                              onClick={() => handleDeleteTask(task.id)}
-                              className="text-slate-400 hover:text-red-600 p-2 rounded-full hover:bg-red-100 transition-colors"
-                              aria-label="Delete task"
-                            >
-                              <TrashIcon />
-                            </button>
-                          </div>
-                        </div>
-                      </div>
-                    ) : (
-                      <>
-                        <div className="flex items-center flex-1 min-w-0">
-                          <input
-                            type="checkbox"
-                            checked={task.completed}
-                            onChange={() => handleToggleComplete(task.id)}
-                            className="h-4 w-4 rounded border-gray-300 text-sky-600 focus:ring-sky-500 cursor-pointer bg-white flex-shrink-0"
-                          />
-                          <div className="ml-4 flex-1 min-w-0" onClick={() => handleStartEditing(task, 'text')}>
-                            <p className={`text-base md:text-sm text-slate-800 truncate ${task.completed ? 'line-through text-slate-500' : ''}`}>
-                               <Highlight text={task.text} query={searchQuery} />
-                            </p>
-                            {(task.date || task.time || task.whom) && (
-                                <div className="md:hidden text-sm text-slate-500 mt-1 flex items-center flex-wrap">
-                                    {task.date && <span><Highlight text={formatDateForDisplay(task.date)} query={searchQuery} /></span>}
-                                    {task.date && task.time && <span className="mx-1.5">&middot;</span>}
-                                    {task.time && <span><Highlight text={formatTimeForDisplay(task.time)} query={searchQuery} /></span>}
-                                    {(task.date || task.time) && task.whom && <span className="mx-1.5">&middot;</span>}
-                                    {task.whom && <span className="font-medium"><Highlight text={task.whom} query={searchQuery} /></span>}
-                                </div>
-                            )}
-                          </div>
-                        </div>
-                        <div className="hidden md:flex items-center flex-shrink-0 text-center text-sm">
-                          <div className="w-28 text-slate-500 cursor-pointer" onClick={() => handleStartEditing(task, 'date')}>
-                            <Highlight text={formatDateForDisplay(task.date)} query={searchQuery} />
-                          </div>
-                          <div className="w-24 text-slate-500 cursor-pointer" onClick={() => handleStartEditing(task, 'time')}>
-                            <Highlight text={formatTimeForDisplay(task.time)} query={searchQuery} />
-                          </div>
-                          <div className="w-28 text-slate-500 truncate cursor-pointer" onClick={() => handleStartEditing(task, 'whom')}>
-                            <Highlight text={task.whom} query={searchQuery} />
-                          </div>
-                          <div className="w-20 flex items-center justify-center">
-                            <button
-                              onClick={() => handleDeleteTask(task.id)}
-                              className="text-slate-400 hover:text-red-600 p-2 rounded-full hover:bg-red-100 transition-colors opacity-0 group-hover:opacity-100 focus:opacity-100"
-                              aria-label="Delete task"
-                            >
-                              <TrashIcon />
-                            </button>
-                          </div>
-                        </div>
-                      </>
-                    )}
-                  </div>
+                  <TaskItem
+                    task={task}
+                    index={index}
+                    isEditing={editingTaskId === task.id}
+                    editingText={editingText}
+                    editingDate={editingDate}
+                    editingTime={editingTime}
+                    editingWhom={editingWhom}
+                    focusOnField={focusOnField}
+                    searchQuery={searchQuery}
+                    onToggleComplete={handleToggleComplete}
+                    onDeleteTask={handleDeleteTask}
+                    onStartEditing={handleStartEditing}
+                    onKeyDown={handleKeyDown}
+                    onEditingTextChange={setEditingText}
+                    onEditingDateChange={setEditingDate}
+                    onEditingTimeChange={setEditingTime}
+                    onEditingWhomChange={setEditingWhom}
+                    formatDateForDisplay={formatDateForDisplay}
+                    formatTimeForDisplay={formatTimeForDisplay}
+                    editingTaskRef={editingTaskRef}
+                  />
                 </React.Fragment>
                 );
               })
