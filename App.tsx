@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, FC, useMemo, useCallback } from 'react';
-import { Task } from './types';
+import { Task, TaskCategory } from './types';
 import { createClient, RealtimeChannel } from '@supabase/supabase-js';
 
 // --- Supabase Client Setup ---
@@ -24,6 +24,9 @@ const customFetch = (url: RequestInfo | URL, options: RequestInit = {}) => {
 const supabase = createClient(supabaseUrl, supabaseKey, {
     global: {
         fetch: customFetch,
+    },
+    db: {
+        schema: 'public', // Explicitly set schema to refresh cache and recognize new columns
     },
 });
 
@@ -107,6 +110,12 @@ const timeFormatOptions: Intl.DateTimeFormatOptions = {
     hour12: false,
 };
 
+const categoryConfig: Record<TaskCategory, { bg: string; hover: string; dot: string; text: string; ring: string }> = {
+  PER: { bg: 'bg-sky-200/60', hover: 'hover:bg-sky-200', dot: 'bg-sky-600', text: 'text-sky-800', ring: 'ring-sky-600' },
+  BIZ: { bg: 'bg-amber-100/60', hover: 'hover:bg-amber-100', dot: 'bg-amber-500', text: 'text-amber-800', ring: 'ring-amber-500' },
+  POL: { bg: 'bg-emerald-200/60', hover: 'hover:bg-emerald-200', dot: 'bg-emerald-600', text: 'text-emerald-800', ring: 'ring-emerald-600' },
+};
+
 const Highlight: FC<{ text?: string | null; query: string }> = ({ text, query }) => {
     if (!query || !text) {
         return <>{text}</>;
@@ -127,6 +136,33 @@ const Highlight: FC<{ text?: string | null; query: string }> = ({ text, query })
     );
 };
 
+interface CategorySelectorProps {
+  selectedCategory: TaskCategory;
+  onSelectCategory: (category: TaskCategory) => void;
+  isCompact?: boolean;
+}
+
+const CategorySelector: FC<CategorySelectorProps> = ({ selectedCategory, onSelectCategory, isCompact = false }) => (
+  <div className={`flex items-center ${isCompact ? 'space-x-3' : 'space-x-4'}`}>
+    {(['PER', 'BIZ', 'POL'] as TaskCategory[]).map(category => {
+      const config = categoryConfig[category];
+      return (
+        <button
+          key={category}
+          type="button"
+          onClick={() => onSelectCategory(category)}
+          className={`w-6 h-6 rounded-full flex items-center justify-center transition-all duration-200 ${selectedCategory === category ? `ring-2 ring-offset-2 ${config.ring}` : ''}`}
+          aria-label={`Set category to ${category}`}
+          title={category}
+        >
+          <span className={`block w-4 h-4 rounded-full ${config.dot}`}></span>
+        </button>
+      );
+    })}
+  </div>
+);
+
+
 interface TaskItemProps {
   task: Task;
   index: number;
@@ -135,6 +171,7 @@ interface TaskItemProps {
   editingDate: string;
   editingTime: string;
   editingWhom: string;
+  editingCategory: TaskCategory;
   focusOnField: 'text' | 'date' | 'time' | 'whom' | null;
   searchQuery: string;
   onToggleComplete: (id: number) => void;
@@ -145,16 +182,17 @@ interface TaskItemProps {
   onEditingDateChange: (date: string) => void;
   onEditingTimeChange: (time: string) => void;
   onEditingWhomChange: (whom: string) => void;
+  onEditingCategoryChange: (category: TaskCategory) => void;
   formatDateForDisplay: (dateString: string) => string;
   formatTimeForDisplay: (timeString: string) => string;
   editingTaskRef: React.RefObject<HTMLDivElement>;
 }
 
 const TaskItem: FC<TaskItemProps> = React.memo(({
-  task, index, isEditing, editingText, editingDate, editingTime, editingWhom,
+  task, index, isEditing, editingText, editingDate, editingTime, editingWhom, editingCategory,
   focusOnField, searchQuery, onToggleComplete, onDeleteTask, onStartEditing,
   onKeyDown, onEditingTextChange, onEditingDateChange, onEditingTimeChange,
-  onEditingWhomChange, formatDateForDisplay, formatTimeForDisplay, editingTaskRef
+  onEditingWhomChange, onEditingCategoryChange, formatDateForDisplay, formatTimeForDisplay, editingTaskRef
 }) => {
   const textInputRef = useRef<HTMLInputElement>(null);
   const dateInputRef = useRef<HTMLInputElement>(null);
@@ -172,9 +210,11 @@ const TaskItem: FC<TaskItemProps> = React.memo(({
     }, 0);
   }, [isEditing, focusOnField]);
 
+  const categoryClasses = categoryConfig[task.category] || categoryConfig.PER;
+
   return (
     <div
-      className={`group bg-slate-50 px-4 py-3 rounded-lg flex items-center transition-all duration-300 ease-in-out hover:shadow-md hover:bg-white ${task.completed ? 'opacity-60' : ''}`}
+      className={`group px-4 py-3 rounded-lg flex items-center transition-all duration-300 ease-in-out ${categoryClasses.bg} ${categoryClasses.hover} ${task.completed ? 'opacity-60' : ''}`}
     >
       {isEditing ? (
         <div ref={editingTaskRef} className="w-full flex flex-col md:flex-row md:items-center">
@@ -195,10 +235,17 @@ const TaskItem: FC<TaskItemProps> = React.memo(({
                     className="w-full text-base md:text-sm text-slate-700 p-0 m-0 border-none bg-transparent focus:ring-0 focus:outline-none"
                 />
             </div>
+            <div className="hidden md:flex items-center pl-4">
+              <CategorySelector selectedCategory={editingCategory} onSelectCategory={onEditingCategoryChange} isCompact />
+            </div>
           </div>
       
           <div className="w-full md:w-auto flex flex-col md:flex-row md:items-center mt-4 md:mt-0">
-              <div className={`flex items-center md:w-28 transition-transform duration-300 ${focusOnField === 'date' ? 'scale-115' : ''} md:scale-100`}>
+             <div className="flex items-center md:hidden">
+              <label htmlFor={`category-${task.id}`} className="text-base text-slate-500 w-20">Category</label>
+              <CategorySelector selectedCategory={editingCategory} onSelectCategory={onEditingCategoryChange} isCompact />
+            </div>
+            <div className={`flex items-center mt-2 md:mt-0 md:w-28 transition-transform duration-300 ${focusOnField === 'date' ? 'scale-115' : ''} md:scale-100`}>
                 <label htmlFor={`date-${task.id}`} className="text-base md:hidden text-slate-500 w-20">Date</label>
                 <input
                     id={`date-${task.id}`}
@@ -307,6 +354,7 @@ const App: React.FC = () => {
   const [editingDate, setEditingDate] = useState<string>('');
   const [editingTime, setEditingTime] = useState<string>('');
   const [editingWhom, setEditingWhom] = useState<string>('');
+  const [editingCategory, setEditingCategory] = useState<TaskCategory>('PER');
   const [isLoaded, setIsLoaded] = useState<boolean>(false);
   const [isMobileCreatorVisible, setIsMobileCreatorVisible] = useState<boolean>(false);
   
@@ -315,6 +363,7 @@ const App: React.FC = () => {
   const [activeFilters, setActiveFilters] = useState<string[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [isSearchVisible, setIsSearchVisible] = useState(false);
+  const [activeCategory, setActiveCategory] = useState<TaskCategory | 'All'>('All');
   
   // Menu State
   const [isMenuOpen, setIsMenuOpen] = useState(false);
@@ -339,6 +388,7 @@ const App: React.FC = () => {
   const [creatorDate, setCreatorDate] = useState(getDefaultDate());
   const [creatorTime, setCreatorTime] = useState('');
   const [creatorWhom, setCreatorWhom] = useState('');
+  const [creatorCategory, setCreatorCategory] = useState<TaskCategory>('PER');
 
   const [focusOnField, setFocusOnField] = useState<'text' | 'date' | 'time' | 'whom' | null>(null);
   const creatorTextRef = useRef<HTMLInputElement>(null);
@@ -363,7 +413,7 @@ const App: React.FC = () => {
         if (tasksResponse.error) throw tasksResponse.error;
         if (settingsResponse.error) throw settingsResponse.error;
         
-        setTasks(tasksResponse.data || []);
+        setTasks(tasksResponse.data?.map(t => ({...t, category: t.category || 'PER'})) || []);
         if (settingsResponse.data) {
           setSortOrder(settingsResponse.data.sort_order);
           setActiveFilters(settingsResponse.data.active_filters || []);
@@ -509,6 +559,10 @@ const App: React.FC = () => {
   const filteredAndSortedTasks = useMemo(() => {
     let tasksCopy = [...tasks];
 
+    if (activeCategory !== 'All') {
+      tasksCopy = tasksCopy.filter(task => task.category === activeCategory);
+    }
+    
     if (searchQuery.trim() !== '') {
       const lowercasedQuery = searchQuery.toLowerCase();
       tasksCopy = tasksCopy.filter(task =>
@@ -533,7 +587,7 @@ const App: React.FC = () => {
     }
     
     return sortTasks(tasksCopy, sortOrder);
-  }, [tasks, sortOrder, activeFilters, sortTasks, searchQuery, formatDateForDisplay, formatTimeForDisplay, UNASSIGNED_KEY]);
+  }, [tasks, sortOrder, activeFilters, sortTasks, searchQuery, formatDateForDisplay, formatTimeForDisplay, activeCategory, UNASSIGNED_KEY]);
 
   useEffect(() => {
     if (isSearchVisible) {
@@ -566,6 +620,7 @@ const App: React.FC = () => {
     setEditingDate('');
     setEditingTime('');
     setEditingWhom('');
+    setEditingCategory('PER');
     setFocusOnField(null);
   }, []);
   
@@ -586,12 +641,13 @@ const App: React.FC = () => {
       date: editingDate || null,
       time: editingTime || null,
       whom: editingWhom.trim() || null,
+      category: editingCategory,
     };
     const updatedTasks = tasks.map(task =>
         task.id === editingTaskId ? { ...task, ...taskUpdates } : task
     );
     return { id: editingTaskId, updates: taskUpdates, updatedTasks };
-  }, [tasks, editingTaskId, editingText, editingDate, editingTime, editingWhom]);
+  }, [tasks, editingTaskId, editingText, editingDate, editingTime, editingWhom, editingCategory]);
 
   const commitEdit = useCallback(() => {
     const result = prepareTaskUpdate();
@@ -690,6 +746,7 @@ const App: React.FC = () => {
       date: creatorDate || null,
       time: creatorTime || null,
       whom: creatorWhom.trim() || null,
+      category: creatorCategory,
     };
 
     const tempId = -Date.now();
@@ -700,6 +757,7 @@ const App: React.FC = () => {
     setCreatorDate(getDefaultDate());
     setCreatorTime('');
     setCreatorWhom('');
+    setCreatorCategory('PER');
     if (isMobileCreatorVisible) setIsMobileCreatorVisible(false);
     else creatorTextRef.current?.focus();
     
@@ -810,6 +868,7 @@ const App: React.FC = () => {
     setEditingDate(task.date || '');
     setEditingTime(task.time || '');
     setEditingWhom(task.whom || '');
+    setEditingCategory(task.category || 'PER');
     setFocusOnField(fieldToFocus);
   }, [commitEdit]);
 
@@ -925,15 +984,17 @@ const App: React.FC = () => {
   const noTasksMessage = () => {
     if (!isLoaded) return { title: "Loading Tasks...", message: "Please wait a moment." };
     if (searchQuery.trim() !== '') return { title: "No Results Found", message: "Try adjusting your search or filter." };
-    if (activeFilters.length > 0) return { title: "No Matching Tasks", message: "No tasks match the current filter." };
+    if (activeCategory !== 'All' || activeFilters.length > 0) return { title: "No Matching Tasks", message: "No tasks match the current filter." };
     return { title: "All tasks accounted for!", message: "Add a new task above to get started." };
   };
+
+  const categoryFilterTabs: (TaskCategory | 'All')[] = ['All', 'PER', 'BIZ', 'POL'];
 
   return (
     <div className="bg-slate-100 min-h-screen font-sans text-gray-800 flex justify-center p-4" style={{ colorScheme: 'light' }}>
       <main className="w-full max-w-5xl mx-auto">
         <div className="bg-white rounded-2xl shadow-2xl shadow-slate-300/60 p-4 md:p-6 flex flex-col h-full max-h-[95vh]">
-          <header className="mb-6 flex justify-between items-start">
+          <header className="mb-4 flex justify-between items-start">
             <div>
               <h1 className="text-2xl md:text-3xl font-bold text-slate-800">To-Do Dashboard</h1>
               <p className="text-slate-500 mt-1 text-base">Hello there, here are your tasks for today.</p>
@@ -1095,6 +1156,22 @@ const App: React.FC = () => {
                 ></div>
             </div>
           </div>
+          
+          <div className="flex items-center space-x-1 md:space-x-2 border-b border-slate-200 pb-3 mb-3">
+            {categoryFilterTabs.map(category => (
+                <button
+                    key={category}
+                    onClick={() => setActiveCategory(category)}
+                    className={`px-3 py-1 text-sm font-medium rounded-full transition-colors duration-200 ${
+                        activeCategory === category
+                        ? (category === 'All' ? 'bg-slate-600 text-white' : `${categoryConfig[category as TaskCategory].dot} text-white`)
+                        : 'text-slate-500 hover:bg-slate-200'
+                    }`}
+                >
+                    {category}
+                </button>
+            ))}
+          </div>
 
           <div className="hidden md:flex items-center text-xs font-semibold text-slate-500 uppercase tracking-wider pl-4 pr-8 pt-4">
             <div className="flex-1 flex items-center">
@@ -1110,10 +1187,10 @@ const App: React.FC = () => {
           </div>
 
           {!isMobileCreatorVisible && (
-            <div className="hidden md:block bg-slate-50 pl-4 pr-8 py-3 rounded-lg mt-2">
+            <div className="hidden md:block bg-slate-50/80 pl-4 pr-8 py-3 rounded-lg mt-2">
                 <div className="flex items-center">
                     <div className="w-4 h-4 flex-shrink-0" aria-hidden="true"></div>
-                    <div className="ml-4 flex-1">
+                    <div className="ml-4 flex-1 flex items-center">
                         <input
                             ref={creatorTextRef}
                             type="text"
@@ -1123,6 +1200,9 @@ const App: React.FC = () => {
                             placeholder="Add a new task..."
                             className="w-full text-slate-700 p-0 m-0 border-none bg-transparent focus:ring-0 focus:outline-none placeholder-slate-400 text-sm"
                         />
+                         <div className="pl-4">
+                            <CategorySelector selectedCategory={creatorCategory} onSelectCategory={setCreatorCategory} isCompact />
+                        </div>
                     </div>
                     <div className="w-28">
                         <input
@@ -1183,6 +1263,10 @@ const App: React.FC = () => {
                     placeholder="What needs to be done?"
                     className="w-full text-base text-slate-700 p-2 border border-slate-300 rounded-md bg-white focus:ring-1 focus:ring-sky-500 focus:border-sky-500 placeholder-slate-400"
                   />
+                </div>
+                <div>
+                   <label className="text-base font-medium text-slate-600 block mb-2">Category</label>
+                   <CategorySelector selectedCategory={creatorCategory} onSelectCategory={setCreatorCategory} />
                 </div>
                 <div className="grid grid-cols-2 gap-4">
                   <div>
@@ -1251,6 +1335,7 @@ const App: React.FC = () => {
                     editingDate={editingDate}
                     editingTime={editingTime}
                     editingWhom={editingWhom}
+                    editingCategory={editingCategory}
                     focusOnField={focusOnField}
                     searchQuery={searchQuery}
                     onToggleComplete={handleToggleComplete}
@@ -1261,6 +1346,7 @@ const App: React.FC = () => {
                     onEditingDateChange={setEditingDate}
                     onEditingTimeChange={setEditingTime}
                     onEditingWhomChange={setEditingWhom}
+                    onEditingCategoryChange={setEditingCategory}
                     formatDateForDisplay={formatDateForDisplay}
                     formatTimeForDisplay={formatTimeForDisplay}
                     editingTaskRef={editingTaskRef}

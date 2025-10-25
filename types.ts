@@ -1,3 +1,4 @@
+export type TaskCategory = 'PER' | 'BIZ' | 'POL';
 
 export interface Task {
   id: number;
@@ -7,4 +8,5 @@ export interface Task {
   time: string;
   whom: string;
   created_at: string;
+  category: TaskCategory;
 }
