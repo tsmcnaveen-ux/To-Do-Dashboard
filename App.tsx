@@ -998,8 +998,8 @@ const App: React.FC = () => {
   const categoryFilterTabs: (TaskCategory | 'All')[] = ['All', 'PER', 'BIZ', 'POL'];
 
   return (
-    <div className="bg-slate-100 min-h-screen font-sans text-gray-800 flex justify-center p-4" style={{ colorScheme: 'light' }}>
-      <main className="w-full max-w-5xl mx-auto">
+    <div className="bg-white md:bg-slate-100 min-h-screen font-sans text-gray-800 flex justify-center p-4" style={{ colorScheme: 'light' }}>
+      <main className="w-full max-w-4xl mx-auto">
         <div className="bg-white rounded-2xl shadow-2xl shadow-slate-300/60 p-4 md:p-6 flex flex-col h-full max-h-[95vh]">
           <header className="mb-4 flex justify-between items-start">
             <div>
