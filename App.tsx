@@ -111,9 +111,9 @@ const timeFormatOptions: Intl.DateTimeFormatOptions = {
 };
 
 const categoryConfig: Record<TaskCategory, { bg: string; hover: string; dot: string; text: string; ring: string }> = {
-  PER: { bg: 'bg-sky-200/60', hover: 'hover:bg-sky-200', dot: 'bg-sky-600', text: 'text-sky-800', ring: 'ring-sky-600' },
-  BIZ: { bg: 'bg-amber-100/60', hover: 'hover:bg-amber-100', dot: 'bg-amber-500', text: 'text-amber-800', ring: 'ring-amber-500' },
-  POL: { bg: 'bg-emerald-200/60', hover: 'hover:bg-emerald-200', dot: 'bg-emerald-600', text: 'text-emerald-800', ring: 'ring-emerald-600' },
+  PER: { bg: 'bg-sky-50', hover: 'hover:bg-sky-100', dot: 'bg-sky-400', text: 'text-sky-700', ring: 'ring-sky-400' },
+  BIZ: { bg: 'bg-amber-50', hover: 'hover:bg-amber-100', dot: 'bg-amber-400', text: 'text-amber-700', ring: 'ring-amber-400' },
+  POL: { bg: 'bg-emerald-50', hover: 'hover:bg-emerald-100', dot: 'bg-emerald-400', text: 'text-emerald-700', ring: 'ring-emerald-400' },
 };
 
 const Highlight: FC<{ text?: string | null; query: string }> = ({ text, query }) => {
@@ -125,7 +125,7 @@ const Highlight: FC<{ text?: string | null; query: string }> = ({ text, query })
         <>
             {parts.map((part, index) =>
                 part.toLowerCase() === query.toLowerCase() ? (
-                    <mark key={index} className="bg-sky-200/70 text-sky-800 rounded px-0.5">
+                    <mark key={index} className="bg-sky-100 text-sky-700 rounded px-0.5">
                         {part}
                     </mark>
                 ) : (
@@ -214,7 +214,7 @@ const TaskItem: FC<TaskItemProps> = React.memo(({
 
   return (
     <div
-      className={`group px-4 py-3 rounded-lg flex items-center transition-all duration-300 ease-in-out ${categoryClasses.bg} ${categoryClasses.hover} ${task.completed ? 'opacity-60' : ''}`}
+      className={`group px-4 py-3 rounded-lg flex items-center transition-[background-color,opacity] duration-300 ease-in-out ${categoryClasses.bg} ${categoryClasses.hover} ${task.completed ? 'opacity-60' : ''}`}
     >
       {isEditing ? (
         <div ref={editingTaskRef} className="w-full flex flex-col md:flex-row md:items-center">
@@ -223,7 +223,7 @@ const TaskItem: FC<TaskItemProps> = React.memo(({
               type="checkbox"
               checked={task.completed}
               onChange={() => onToggleComplete(task.id)}
-              className="h-4 w-4 rounded border-gray-300 text-sky-600 focus:ring-sky-500 cursor-pointer bg-white flex-shrink-0"
+              className="h-4 w-4 rounded border-gray-300 text-sky-500 focus:ring-sky-400 cursor-pointer bg-white flex-shrink-0"
             />
             <div className="ml-4 flex-1 min-w-0">
                 <input
@@ -254,7 +254,7 @@ const TaskItem: FC<TaskItemProps> = React.memo(({
                     value={editingDate}
                     onChange={(e) => onEditingDateChange(e.target.value)}
                     onKeyDown={(e) => onKeyDown(e, index, 'date')}
-                    className="w-full text-base md:text-sm text-slate-500 p-2 rounded-md border border-slate-300 md:border-none md:p-0 md:bg-transparent focus:ring-1 focus:ring-sky-500 md:focus:ring-0 md:focus:outline-none md:text-center hide-picker-indicator"
+                    className="w-full text-base md:text-sm text-slate-500 p-2 rounded-md border border-slate-300 md:border-none md:p-0 md:bg-transparent focus:ring-1 focus:ring-sky-400 md:focus:ring-0 md:focus:outline-none md:text-center hide-picker-indicator"
                 />
             </div>
       
@@ -267,7 +267,7 @@ const TaskItem: FC<TaskItemProps> = React.memo(({
                     value={editingTime}
                     onChange={(e) => onEditingTimeChange(e.target.value)}
                     onKeyDown={(e) => onKeyDown(e, index, 'time')}
-                    className="w-full text-base md:text-sm text-slate-500 p-2 rounded-md border border-slate-300 md:border-none md:p-0 md:bg-transparent focus:ring-1 focus:ring-sky-500 md:focus:ring-0 md:focus:outline-none hide-picker-indicator md:text-center"
+                    className="w-full text-base md:text-sm text-slate-500 p-2 rounded-md border border-slate-300 md:border-none md:p-0 md:bg-transparent focus:ring-1 focus:ring-sky-400 md:focus:ring-0 md:focus:outline-none hide-picker-indicator md:text-center"
                 />
             </div>
       
@@ -281,7 +281,7 @@ const TaskItem: FC<TaskItemProps> = React.memo(({
                     onChange={(e) => onEditingWhomChange(e.target.value)}
                     onKeyDown={(e) => onKeyDown(e, index, 'whom')}
                     placeholder="Assign to..."
-                    className="w-full text-base md:text-sm text-slate-500 p-2 rounded-md border border-slate-300 md:border-none md:p-0 md:bg-transparent focus:ring-1 focus:ring-sky-500 md:focus:ring-0 md:focus:outline-none md:text-center placeholder-slate-400"
+                    className="w-full text-base md:text-sm text-slate-500 p-2 rounded-md border border-slate-300 md:border-none md:p-0 md:bg-transparent focus:ring-1 focus:ring-sky-400 md:focus:ring-0 md:focus:outline-none md:text-center placeholder-slate-400"
                 />
             </div>
             
@@ -303,7 +303,7 @@ const TaskItem: FC<TaskItemProps> = React.memo(({
               type="checkbox"
               checked={task.completed}
               onChange={() => onToggleComplete(task.id)}
-              className="h-4 w-4 rounded border-gray-300 text-sky-600 focus:ring-sky-500 cursor-pointer bg-white flex-shrink-0"
+              className="h-4 w-4 rounded border-gray-300 text-sky-500 focus:ring-sky-400 cursor-pointer bg-white flex-shrink-0"
             />
             <div className="ml-4 flex-1 min-w-0" onClick={() => onStartEditing(task, 'text')}>
               <p className={`text-base md:text-sm text-slate-800 truncate ${task.completed ? 'line-through text-slate-500' : ''}`}>
@@ -976,8 +976,15 @@ const App: React.FC = () => {
     }
   };
 
-  const completedTasksCount = tasks.filter(t => t.completed).length;
-  const totalTasks = tasks.length;
+  const tasksForProgress = useMemo(() => {
+    if (activeCategory === 'All') {
+        return tasks;
+    }
+    return tasks.filter(task => task.category === activeCategory);
+  }, [tasks, activeCategory]);
+
+  const completedTasksCount = tasksForProgress.filter(t => t.completed).length;
+  const totalTasks = tasksForProgress.length;
   const progress = totalTasks > 0 ? (completedTasksCount / totalTasks) * 100 : 0;
   const isFilterOrSortActive = activeFilters.length > 0 || sortOrder !== null || searchQuery.trim() !== '';
 
@@ -1016,7 +1023,7 @@ const App: React.FC = () => {
                                 }
                             }}
                             placeholder="Search..."
-                            className="w-40 md:w-56 text-sm text-slate-700 py-1.5 px-3 border border-slate-300 rounded-full focus:ring-1 focus:ring-sky-500 focus:border-sky-500 focus:outline-none placeholder-slate-400"
+                            className="w-40 md:w-56 text-sm text-slate-700 py-1.5 px-3 border border-slate-300 rounded-full focus:ring-1 focus:ring-sky-400 focus:border-sky-400 focus:outline-none placeholder-slate-400"
                         />
                          {searchQuery && (
                             <button onClick={() => { setSearchQuery(''); searchInputRef.current?.focus(); }} className="absolute right-2 text-slate-400 hover:text-slate-600 p-1">
@@ -1027,7 +1034,7 @@ const App: React.FC = () => {
                 ) : (
                     <button
                         onClick={() => setIsSearchVisible(true)}
-                        className="p-2 rounded-full text-slate-500 hover:bg-slate-200 hover:text-slate-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-sky-500"
+                        className="p-2 rounded-full text-slate-500 hover:bg-slate-200 hover:text-slate-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-sky-400"
                         aria-label="Search tasks"
                     >
                         <SearchIcon className="w-5 h-5" />
@@ -1041,14 +1048,14 @@ const App: React.FC = () => {
                           setIsMenuOpen(prev => !prev);
                           if (isMenuOpen) setMenuView('main');
                         }}
-                        className={`relative p-2 rounded-full ${isFilterOrSortActive ? 'text-sky-600 bg-sky-100' : 'text-slate-500'} hover:bg-slate-200 hover:text-slate-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-sky-500`}
+                        className={`relative p-2 rounded-full ${isFilterOrSortActive ? 'text-sky-500 bg-sky-100/80' : 'text-slate-500'} hover:bg-slate-200 hover:text-slate-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-sky-400`}
                         aria-haspopup="true"
                         aria-expanded={isMenuOpen}
                     >
                         <span className="sr-only">Open options</span>
                         <DotsVerticalIcon className="w-5 h-5" />
                          {isFilterOrSortActive && (
-                            <span className="absolute top-1.5 right-1.5 block h-2 w-2 rounded-full bg-sky-500 ring-2 ring-white" />
+                            <span className="absolute top-1.5 right-1.5 block h-2 w-2 rounded-full bg-sky-400 ring-2 ring-white" />
                         )}
                     </button>
                     {isMenuOpen && (
@@ -1063,33 +1070,33 @@ const App: React.FC = () => {
                                 <div className="p-1 flex items-center space-x-1">
                                     <button
                                         onClick={() => setMenuView('filter')}
-                                        className="relative p-2 rounded-md text-slate-500 hover:bg-slate-100 hover:text-slate-700 transition-colors focus:outline-none focus:ring-2 focus:ring-sky-500"
+                                        className="relative p-2 rounded-md text-slate-500 hover:bg-slate-100 hover:text-slate-700 transition-colors focus:outline-none focus:ring-2 focus:ring-sky-400"
                                         aria-label="Filter tasks"
                                         title="Filter"
                                     >
                                         <FunnelIcon className="w-5 h-5" />
                                         {activeFilters.length > 0 && (
-                                            <span className="absolute top-1.5 right-1.5 block h-2 w-2 rounded-full bg-sky-500 ring-2 ring-white" />
+                                            <span className="absolute top-1.5 right-1.5 block h-2 w-2 rounded-full bg-sky-400 ring-2 ring-white" />
                                         )}
                                     </button>
                                     <div className="h-5 w-px bg-slate-200" aria-hidden="true"></div>
                                     <button
                                         onClick={handleSortClick}
-                                        className="relative p-2 rounded-md text-slate-500 hover:bg-slate-100 hover:text-slate-700 transition-colors focus:outline-none focus:ring-2 focus:ring-sky-500"
+                                        className="relative p-2 rounded-md text-slate-500 hover:bg-slate-100 hover:text-slate-700 transition-colors focus:outline-none focus:ring-2 focus:ring-sky-400"
                                         aria-label="Sort tasks"
                                         title={ sortOrder === 'asc' ? "Clear sorting" : "Sort by oldest date and time" }
                                     >
                                         {sortOrder === 'asc' ? <SortAscendingIcon className="w-5 h-5" /> : <ArrowsUpDownIcon className="w-5 h-5" />}
                                         {sortOrder !== null && (
-                                            <span className="absolute top-1.5 right-1.5 block h-2 w-2 rounded-full bg-sky-500 ring-2 ring-white" />
+                                            <span className="absolute top-1.5 right-1.5 block h-2 w-2 rounded-full bg-sky-400 ring-2 ring-white" />
                                         )}
                                     </button>
-                                    {completedTasksCount > 0 && (
+                                    {tasks.filter(t => t.completed).length > 0 && (
                                         <>
                                             <div className="h-5 w-px bg-slate-200" aria-hidden="true"></div>
                                             <button
                                                 onClick={handleClearCompletedTasks}
-                                                className="p-2 rounded-md text-slate-500 hover:bg-slate-100 hover:text-slate-700 transition-colors focus:outline-none focus:ring-2 focus:ring-sky-500"
+                                                className="p-2 rounded-md text-slate-500 hover:bg-slate-100 hover:text-slate-700 transition-colors focus:outline-none focus:ring-2 focus:ring-sky-400"
                                                 aria-label="Clear completed tasks"
                                                 title="Clear completed tasks"
                                             >
@@ -1115,7 +1122,7 @@ const App: React.FC = () => {
                                                         type="checkbox"
                                                         checked={areAllFiltersSelected}
                                                         onChange={handleToggleAllFilters}
-                                                        className="h-4 w-4 rounded border-gray-300 text-sky-600 focus:ring-sky-500 focus:ring-1 focus:ring-offset-0 mr-3"
+                                                        className="h-4 w-4 rounded border-gray-300 text-sky-500 focus:ring-sky-400 focus:ring-1 focus:ring-offset-0 mr-3"
                                                     />
                                                     <span>All</span>
                                                 </label>
@@ -1126,7 +1133,7 @@ const App: React.FC = () => {
                                                             type="checkbox"
                                                             checked={activeFilters.includes(assignee)}
                                                             onChange={() => handleIndividualFilterToggle(assignee)}
-                                                            className="h-4 w-4 rounded border-gray-300 text-sky-600 focus:ring-sky-500 focus:ring-1 focus:ring-offset-0 mr-3"
+                                                            className="h-4 w-4 rounded border-gray-300 text-sky-500 focus:ring-sky-400 focus:ring-1 focus:ring-offset-0 mr-3"
                                                         />
                                                         <span className={assignee === UNASSIGNED_KEY ? 'italic text-slate-500' : ''}>{assignee}</span>
                                                     </label>
@@ -1151,7 +1158,7 @@ const App: React.FC = () => {
             </div>
             <div className="w-full bg-slate-200 rounded-full h-2.5">
                 <div 
-                    className="bg-sky-500 h-2.5 rounded-full transition-all duration-500 ease-out" 
+                    className="bg-sky-400 h-2.5 rounded-full transition-all duration-500 ease-out" 
                     style={{width: `${progress}%`}}
                 ></div>
             </div>
@@ -1238,7 +1245,7 @@ const App: React.FC = () => {
                     <div className="w-20 flex items-center justify-center">
                         <button
                             onClick={handleAddTask}
-                            className="text-slate-400 hover:text-sky-600 p-2 rounded-full hover:bg-sky-100 transition-colors"
+                            className="text-slate-400 hover:text-sky-500 p-2 rounded-full hover:bg-sky-100 transition-colors"
                             aria-label="Add new task"
                         >
                             <PlusIcon className="w-5 h-5" />
@@ -1261,7 +1268,7 @@ const App: React.FC = () => {
                     onChange={(e) => setCreatorText(e.target.value)}
                     onKeyDown={(e) => handleCreatorKeyDown(e, 'text')}
                     placeholder="What needs to be done?"
-                    className="w-full text-base text-slate-700 p-2 border border-slate-300 rounded-md bg-white focus:ring-1 focus:ring-sky-500 focus:border-sky-500 placeholder-slate-400"
+                    className="w-full text-base text-slate-700 p-2 border border-slate-300 rounded-md bg-white focus:ring-1 focus:ring-sky-400 focus:border-sky-400 placeholder-slate-400"
                   />
                 </div>
                 <div>
@@ -1278,7 +1285,7 @@ const App: React.FC = () => {
                       value={creatorDate}
                       onChange={(e) => setCreatorDate(e.target.value)}
                       onKeyDown={(e) => handleCreatorKeyDown(e, 'date')}
-                      className="w-full text-base text-slate-500 p-2 border border-slate-300 rounded-md bg-white focus:ring-1 focus:ring-sky-500 focus:border-sky-500"
+                      className="w-full text-base text-slate-500 p-2 border border-slate-300 rounded-md bg-white focus:ring-1 focus:ring-sky-400 focus:border-sky-400"
                     />
                   </div>
                   <div>
@@ -1290,7 +1297,7 @@ const App: React.FC = () => {
                       value={creatorTime}
                       onChange={(e) => setCreatorTime(e.target.value)}
                       onKeyDown={(e) => handleCreatorKeyDown(e, 'time')}
-                      className="w-full text-base text-slate-500 p-2 border border-slate-300 rounded-md bg-white focus:ring-1 focus:ring-sky-500 focus:border-sky-500"
+                      className="w-full text-base text-slate-500 p-2 border border-slate-300 rounded-md bg-white focus:ring-1 focus:ring-sky-400 focus:border-sky-400"
                     />
                   </div>
                 </div>
@@ -1304,11 +1311,11 @@ const App: React.FC = () => {
                     onChange={(e) => setCreatorWhom(e.target.value)}
                     onKeyDown={(e) => handleCreatorKeyDown(e, 'whom')}
                     placeholder="Assign to..."
-                    className="w-full text-base text-slate-500 p-2 border border-slate-300 rounded-md bg-white focus:ring-1 focus:ring-sky-500 focus:border-sky-500 placeholder-slate-400"
+                    className="w-full text-base text-slate-500 p-2 border border-slate-300 rounded-md bg-white focus:ring-1 focus:ring-sky-400 focus:border-sky-400 placeholder-slate-400"
                   />
                 </div>
                 <div className="flex items-center gap-2 pt-2">
-                  <button onClick={handleAddTask} className="flex-1 bg-sky-500 text-white font-semibold py-2 px-4 rounded-lg hover:bg-sky-600 transition-colors text-base">Add Task</button>
+                  <button onClick={handleAddTask} className="flex-1 bg-sky-400 text-white font-semibold py-2 px-4 rounded-lg hover:bg-sky-500 transition-colors text-base">Add Task</button>
                   <button onClick={() => setIsMobileCreatorVisible(false)} className="flex-1 bg-slate-200 text-slate-700 font-semibold py-2 px-4 rounded-lg hover:bg-slate-300 transition-colors text-base">Cancel</button>
                 </div>
               </div>
@@ -1322,7 +1329,7 @@ const App: React.FC = () => {
                 return (
                 <React.Fragment key={task.id}>
                   {isFirstCompleted && (
-                    <div className="flex items-center my-1 transition-all duration-300" aria-hidden="true">
+                    <div className="flex items-center my-1" aria-hidden="true">
                         <span className="flex-shrink text-xs font-semibold text-slate-400 uppercase">Completed</span>
                         <div className="flex-grow border-t border-slate-200 ml-2"></div>
                     </div>
@@ -1356,7 +1363,7 @@ const App: React.FC = () => {
               })
             ) : (
                 <div className="text-center py-12 px-6 bg-slate-50 rounded-lg">
-                    <div className="mx-auto w-16 h-16 text-sky-300">
+                    <div className="mx-auto w-16 h-16 text-sky-200">
                         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-16 h-16">
                             <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 6.75h7.5M8.25 12h7.5m-7.5 5.25h7.5m3-15H5.25c-1.12 0-2.06.914-2.06 2.06v11.88c0 1.146.94 2.06 2.06 2.06h11.88c1.12 0 2.06-.914 2.06-2.06V8.81c0-1.146-.94-2.06-2.06-2.06Z" />
                         </svg>
@@ -1372,7 +1379,7 @@ const App: React.FC = () => {
         {!isMobileCreatorVisible && (
             <button 
                 onClick={() => setIsMobileCreatorVisible(true)}
-                className="md:hidden fixed bottom-6 right-6 bg-sky-500 text-white p-4 rounded-full shadow-lg hover:bg-sky-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-sky-500 transition-colors z-10"
+                className="md:hidden fixed bottom-6 right-6 bg-sky-400 text-white p-4 rounded-full shadow-lg hover:bg-sky-500 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-sky-400 transition-colors z-10"
                 aria-label="Add new task"
             >
                 <PlusIcon className="w-6 h-6" />
