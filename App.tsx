@@ -3,10 +3,10 @@ import { Task, TaskCategory } from './types';
 import { createClient, RealtimeChannel } from '@supabase/supabase-js';
 
 // --- Supabase Client Setup ---
-// IMPORTANT: For security, these should be stored in environment variables, not hardcoded.
-// This app assumes SUPABASE_URL and SUPABASE_KEY are set in the execution environment.
-const supabaseUrl = process.env.SUPABASE_URL || 'https://pkjwbkmciosrvbhpzglx.supabase.co';
-const supabaseKey = process.env.SUPABASE_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBrandia21jaW9zcnZiaHB6Z2x4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTUwMDIwNzEsImV4cCI6MjA3MDU3ODA3MX0.Xkuvbre2CMOxRQBsDTZApQ8_AGKC_nxhmXTzx3uU8kE';
+// In a production environment with a build step, use environment variables.
+// For this browser-direct execution, we use the values directly.
+const supabaseUrl = 'https://pkjwbkmciosrvbhpzglx.supabase.co';
+const supabaseKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBrandia21jaW9zcnZiaHB6Z2x4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTUwMDIwNzEsImV4cCI6MjA3MDU3ODA3MX0.Xkuvbre2CMOxRQBsDTZApQ8_AGKC_nxhmXTzx3uU8kE';
 
 /**
  * Custom fetch implementation to address potential network issues.
@@ -22,6 +22,9 @@ const customFetch = (url: RequestInfo | URL, options: RequestInit = {}) => {
 };
 
 const supabase = createClient(supabaseUrl, supabaseKey, {
+    auth: {
+        persistSession: false, // Often helpful in simple browser environments to avoid storage issues
+    },
     global: {
         fetch: customFetch,
     },
