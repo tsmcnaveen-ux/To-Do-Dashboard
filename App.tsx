@@ -3,17 +3,9 @@ import { Task, TaskCategory } from './types';
 import { createClient, RealtimeChannel } from '@supabase/supabase-js';
 
 // --- Supabase Client Setup ---
-// In a production environment with a build step, use environment variables.
-// For this browser-direct execution, we use the values directly.
 const supabaseUrl = 'https://pkjwbkmciosrvbhpzglx.supabase.co';
 const supabaseKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBrandia21jaW9zcnZiaHB6Z2x4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTUwMDIwNzEsImV4cCI6MjA3MDU3ODA3MX0.Xkuvbre2CMOxRQBsDTZApQ8_AGKC_nxhmXTzx3uU8kE';
 
-/**
- * Custom fetch implementation to address potential network issues.
- * In some environments (e.g., behind certain proxies or with specific browser settings),
- * keep-alive connections can be unreliable and lead to "Failed to fetch" errors.
- * Disabling it forces a new connection for each request, improving stability.
- */
 const customFetch = (url: RequestInfo | URL, options: RequestInit = {}) => {
     return fetch(url, {
         ...options,
@@ -23,18 +15,20 @@ const customFetch = (url: RequestInfo | URL, options: RequestInit = {}) => {
 
 const supabase = createClient(supabaseUrl, supabaseKey, {
     auth: {
-        persistSession: false, // Often helpful in simple browser environments to avoid storage issues
+        persistSession: false,
     },
     global: {
         fetch: customFetch,
     },
     db: {
-        schema: 'public', // Explicitly set schema to refresh cache and recognize new columns
+        schema: 'public',
     },
 });
 
+// Alarm Sound URL
+const ALARM_SOUND_URL = 'https://actions.google.com/sounds/v1/alarms/beep_short.ogg';
 
-// SVG Icon Components defined outside the main component
+// SVG Icon Components
 const PlusIcon: FC<{ className?: string }> = ({ className }) => (
   <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className={className || "w-6 h-6"}>
     <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
@@ -53,18 +47,6 @@ const DotsVerticalIcon: FC<{ className?: string }> = ({ className }) => (
     </svg>
 );
 
-const CheckIcon: FC<{ className?: string }> = ({ className }) => (
-    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={3} stroke="currentColor" className={className || "w-6 h-6"}>
-        <path strokeLinecap="round" strokeLinejoin="round" d="m4.5 12.75 6 6 9-13.5" />
-    </svg>
-);
-
-const ChevronRightIcon: FC<{ className?: string }> = ({ className }) => (
-    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className={className || "w-5 h-5"}>
-        <path strokeLinecap="round" strokeLinejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5" />
-    </svg>
-);
-
 const ChevronLeftIcon: FC<{ className?: string }> = ({ className }) => (
     <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className={className || "w-5 h-5"}>
         <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5 8.25 12l7.5-7.5" />
@@ -74,6 +56,12 @@ const ChevronLeftIcon: FC<{ className?: string }> = ({ className }) => (
 const FunnelIcon: FC<{ className?: string }> = ({ className }) => (
     <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className={className || "w-5 h-5"}>
       <path strokeLinecap="round" strokeLinejoin="round" d="M12 3c2.755 0 5.455.232 8.083.678.533.09.917.556.917 1.096v1.044a2.25 2.25 0 0 1-.659 1.591l-5.432 5.432a2.25 2.25 0 0 0-.659 1.591v2.927a2.25 2.25 0 0 1-1.244 2.013L9.75 21v-6.577a2.25 2.25 0 0 0-.659-1.591L3.659 7.409A2.25 2.25 0 0 1 3 5.818V4.774c0-.54.384-1.006.917-1.096A48.32 48.32 0 0 1 12 3Z" />
+    </svg>
+);
+
+const BellIcon: FC<{ className?: string }> = ({ className }) => (
+    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className={className || "w-6 h-6"}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M14.857 17.082a23.848 23.848 0 0 0 5.454-1.31A8.967 8.967 0 0 1 18 9.75V9A6 6 0 0 0 6 9v.75a8.967 8.967 0 0 1-2.312 6.022c1.733.64 3.56 1.085 5.455 1.31m5.714 0a24.255 24.255 0 0 1-5.714 0m5.714 0a3 3 0 1 1-5.714 0" />
     </svg>
 );
 
@@ -367,6 +355,11 @@ const App: React.FC = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [isSearchVisible, setIsSearchVisible] = useState(false);
   const [activeCategory, setActiveCategory] = useState<TaskCategory | 'All'>('All');
+
+  // Alarm & Notification State
+  const [dueTasks, setDueTasks] = useState<Task[]>([]);
+  const [notifiedTaskIds, setNotifiedTaskIds] = useState<Set<number>>(new Set());
+  const alarmAudioRef = useRef<HTMLAudioElement | null>(null);
   
   // Menu State
   const [isMenuOpen, setIsMenuOpen] = useState(false);
@@ -393,6 +386,15 @@ const App: React.FC = () => {
   const [creatorWhom, setCreatorWhom] = useState('');
   const [creatorCategory, setCreatorCategory] = useState<TaskCategory>('PER');
 
+  // Logic to sync creator default with active tab
+  useEffect(() => {
+    if (activeCategory === 'All') {
+      setCreatorCategory('PER');
+    } else {
+      setCreatorCategory(activeCategory as TaskCategory);
+    }
+  }, [activeCategory]);
+
   const [focusOnField, setFocusOnField] = useState<'text' | 'date' | 'time' | 'whom' | null>(null);
   const creatorTextRef = useRef<HTMLInputElement>(null);
   const creatorDateRef = useRef<HTMLInputElement>(null);
@@ -400,6 +402,65 @@ const App: React.FC = () => {
   const creatorWhomRef = useRef<HTMLInputElement>(null);
 
   const UNASSIGNED_KEY = 'Unassigned';
+
+  // --- Notification System ---
+
+  useEffect(() => {
+    // Request notification permissions on mount
+    if ("Notification" in window && Notification.permission === "default") {
+        Notification.requestPermission();
+    }
+  }, []);
+
+  useEffect(() => {
+    const checkDueTasks = () => {
+        const now = new Date();
+        const dateStr = now.toISOString().split('T')[0];
+        const hours = String(now.getHours()).padStart(2, '0');
+        const minutes = String(now.getMinutes()).padStart(2, '0');
+        const timeStr = `${hours}:${minutes}`;
+
+        const triggered: Task[] = [];
+        tasks.forEach(task => {
+            if (!task.completed && task.date === dateStr && task.time === timeStr && !notifiedTaskIds.has(task.id)) {
+                triggered.push(task);
+                setNotifiedTaskIds(prev => new Set(prev).add(task.id));
+            }
+        });
+
+        if (triggered.length > 0) {
+            setDueTasks(prev => [...prev, ...triggered]);
+            
+            // Play Alarm Sound
+            if (alarmAudioRef.current) {
+                alarmAudioRef.current.play().catch(e => console.debug("Audio play blocked until interaction", e));
+            }
+
+            // Browser Notification
+            if ("Notification" in window && Notification.permission === "granted") {
+                triggered.forEach(t => {
+                    new Notification("Task Due!", {
+                        body: t.text,
+                        icon: "/vite.svg"
+                    });
+                });
+            }
+        }
+    };
+
+    // Check every 30 seconds to be precise with the minute
+    const interval = setInterval(checkDueTasks, 30000);
+    return () => clearInterval(interval);
+  }, [tasks, notifiedTaskIds]);
+
+  const dismissAlarm = (taskId: number) => {
+    setDueTasks(prev => prev.filter(t => t.id !== taskId));
+    // If no more due tasks, stop the looping sound
+    if (dueTasks.length <= 1 && alarmAudioRef.current) {
+        alarmAudioRef.current.pause();
+        alarmAudioRef.current.currentTime = 0;
+    }
+  };
 
   // --- Data Fetching and Realtime Sync ---
 
@@ -760,7 +821,9 @@ const App: React.FC = () => {
     setCreatorDate(getDefaultDate());
     setCreatorTime('');
     setCreatorWhom('');
-    setCreatorCategory('PER');
+    // Reset category back to current active tab after adding
+    setCreatorCategory(activeCategory === 'All' ? 'PER' : activeCategory as TaskCategory);
+    
     if (isMobileCreatorVisible) setIsMobileCreatorVisible(false);
     else creatorTextRef.current?.focus();
     
@@ -1002,6 +1065,40 @@ const App: React.FC = () => {
 
   return (
     <div className="bg-white md:bg-slate-100 min-h-screen font-sans text-gray-800 flex justify-center p-4" style={{ colorScheme: 'light' }}>
+      {/* Alarm Audio Component */}
+      <audio ref={alarmAudioRef} src={ALARM_SOUND_URL} loop />
+
+      {/* Alarm Overlay */}
+      {dueTasks.length > 0 && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
+            <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full overflow-hidden animate-bounce-in">
+              <div className="bg-sky-500 p-6 flex justify-center">
+                <div className="p-3 bg-white/20 rounded-full animate-pulse">
+                  <BellIcon className="w-12 h-12 text-white" />
+                </div>
+              </div>
+              <div className="p-8 text-center">
+                <h2 className="text-2xl font-bold text-slate-800 mb-2">Attention!</h2>
+                <p className="text-slate-500 mb-6 font-medium">The following task is due now:</p>
+                <div className="space-y-4 max-h-60 overflow-y-auto custom-scrollbar pr-2 mb-8">
+                    {dueTasks.map(task => (
+                        <div key={task.id} className="p-4 bg-sky-50 border border-sky-100 rounded-xl text-left">
+                           <p className="text-slate-800 font-semibold">{task.text}</p>
+                           {task.whom && <p className="text-xs text-slate-500 mt-1 uppercase tracking-wider">Assignee: {task.whom}</p>}
+                        </div>
+                    ))}
+                </div>
+                <button 
+                  onClick={() => dueTasks.forEach(t => dismissAlarm(t.id))}
+                  className="w-full bg-sky-500 hover:bg-sky-600 text-white font-bold py-4 px-6 rounded-xl transition-all shadow-lg active:scale-95"
+                >
+                  Dismiss All
+                </button>
+              </div>
+            </div>
+          </div>
+      )}
+
       <main className="w-full max-w-4xl mx-auto">
         <div className="bg-white rounded-2xl shadow-2xl shadow-slate-300/60 p-4 md:p-6 flex flex-col h-full max-h-[95vh]">
           <header className="mb-4 flex justify-between items-start">
